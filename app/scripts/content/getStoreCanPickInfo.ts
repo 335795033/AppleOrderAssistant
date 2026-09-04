@@ -1,0 +1,299 @@
+import { IPHONEORDER_CONFIG } from '../../shared/interface'
+import { applePageUrl, iPhoneModels, fetchHeaders, defaultAres, normalizeDistrictName } from '../../shared/constants'
+import { sleep, randomSleep, getSelectedStoreInUI } from '../../shared/util'
+import { rotateSessionAndReload } from './errorRecover'
+import crossfetch from 'cross-fetch'
+import { each as _each, map as _map } from 'lodash'
+
+const fetch = crossfetch.bind(this)
+
+// 连续请求失败计数：达到阈值后说明当前会话很可能已被苹果风控标记
+// (表现为接口 404/403/网络异常)，此时主动轮换会话(清 cookie + 刷新)自愈
+let consecutiveFetchFailCount = 0
+const MAX_CONSECUTIVE_FAIL = 3
+
+// 从当前在售的最新 Pro 系列中随机取一个真实 SKU，用于被风控时伪装"正常用户浏览"的请求
+const getRandomModel4Fake = () => {
+    const fakePool = [iPhoneModels.iPhone17Pro, iPhoneModels.iPhone17ProMax, iPhoneModels.iPhone16Pro]
+    const models = fakePool[Math.floor(Math.random() * fakePool.length)]
+    return models[Math.floor(Math.random() * models.length)]?.model
+}
+
+/*
+ *   @partNumber iPhone 型号
+ *   @isNoWait 是否等待，不等待表示纯粹调用接口
+ */
+interface IGetStoreCanPickInfoProps {
+    x_aos_stk: string
+    partNumber: string
+    isNoWait?: boolean
+    iPhoneOrderConfig: IPHONEORDER_CONFIG
+}
+const getStoreCanPickInfo = async ({
+    x_aos_stk,
+    partNumber,
+    isNoWait,
+    iPhoneOrderConfig,
+}: IGetStoreCanPickInfoProps) => {
+    // 若页面 UI 已经选中某个门店，直接复用，避免重复调用搜索接口和循环点选区划
+    const selectedStore = getSelectedStoreInUI()
+    if (selectedStore?.storeNumber) {
+        console.log(`[三丈apple助手] 页面 UI 已选中门店，直接使用`, selectedStore)
+        return {
+            ...selectedStore,
+            availableNowForAllLines: true,
+        }
+    }
+
+    storeSearchInPage({ iPhoneOrderConfig })
+    let pickupStoreInfo: Record<string, any> = {}
+    const { host, protocol } = window.location || {}
+    // let url = `${protocol}//www.apple.com.cn/shop/fulfillment-messages`
+    let url = `/shop/checkoutx?_a=search&_m=checkout.fulfillment.pickupTab.pickup.storeLocator`
+
+    const districtName = normalizeDistrictName(
+        iPhoneOrderConfig.provinceName || '',
+        iPhoneOrderConfig.cityName || '',
+        iPhoneOrderConfig.districtName || defaultAres.districtName
+    )
+    const provinceName = iPhoneOrderConfig.provinceName || defaultAres.provinceName
+    const cityName = iPhoneOrderConfig.cityName || defaultAres.cityName
+    let reqQuery = {
+        'parts.0': partNumber, // 型号 `MQ8G3CH/A`,
+        'mts.0': `regular`,
+        pl: true,
+        location: `${provinceName} ${cityName} ${districtName}`,
+        geoLocated: false,
+        state: provinceName,
+        city: cityName,
+        district: districtName,
+    }
+
+    const querystring = _map(reqQuery, (value, key) => {
+        return `${encodeURIComponent(key)}=${encodeURIComponent(value)}`
+    }).join(`&`)
+
+    let dataString = '',
+        data = []
+    const provinceCityDistrict =
+        provinceName == cityName ? cityName + ' ' + districtName : provinceName + ' ' + cityName + ' ' + districtName
+    data = [
+        `checkout.fulfillment.pickupTab.pickup.storeLocator.showAllStores=false`,
+        `checkout.fulfillment.pickupTab.pickup.storeLocator.selectStore=`,
+        `checkout.fulfillment.pickupTab.pickup.storeLocator.searchInput=${encodeURIComponent(
+            provinceName + ' ' + cityName + ' ' + districtName
+        )}`,
+        `checkout.fulfillment.pickupTab.pickup.storeLocator.address.stateCitySelectorForCheckout.city=${encodeURIComponent(
+            cityName
+        )}`,
+        `checkout.fulfillment.pickupTab.pickup.storeLocator.address.stateCitySelectorForCheckout.state=${encodeURIComponent(
+            provinceName
+        )}`,
+        `checkout.fulfillment.pickupTab.pickup.storeLocator.address.stateCitySelectorForCheckout.provinceCityDistrict=${encodeURIComponent(
+            provinceCityDistrict
+        )}`,
+        `checkout.fulfillment.pickupTab.pickup.storeLocator.address.stateCitySelectorForCheckout.countryCode=CN`,
+        `checkout.fulfillment.pickupTab.pickup.storeLocator.address.stateCitySelectorForCheckout.district=${encodeURIComponent(
+            districtName
+        )}`,
+    ]
+    dataString = data.join(`&`)
+
+    let options = {
+        method: 'POST',
+        headers: {
+            ...fetchHeaders,
+            referer: applePageUrl.buyiPhone,
+            'X-Aos-Model-Page': 'checkoutPage',
+            'X-Aos-Stk': x_aos_stk,
+        },
+        credentials: 'include' as RequestCredentials,
+        body: dataString,
+    }
+
+    console.log(`getStoreCanPickInfo options`, options)
+    try {
+        let resResult = (await fetch(url, options)) as Record<string, any>
+
+        let pickupResults: any = {}
+
+        // 如果请求失败， 表示被封禁
+        if (![200, 301, 302].includes(Number(resResult?.status))) {
+            if (!isNoWait) {
+                console.log(`********** GMfetch failed, stepWait add 1 sec **********`)
+                consecutiveFetchFailCount++
+                const resText = await resResult.text()
+                // console.log(`resText`, resText)
+                iPhoneOrderConfig.stepWait = iPhoneOrderConfig.stepWait + 1
+                if (resText?.indexOf(`503 Service Temporarily Unavailable`) > -1) {
+                    console.log(`********** and wait 1 min **********`)
+                    // 换一个型号调用，让apple认为是正常请求
+                    const randomPartNumberiPhonePro = getRandomModel4Fake()
+                    await getStoreCanPickInfo({
+                        x_aos_stk,
+                        partNumber: randomPartNumberiPhonePro,
+                        isNoWait: true,
+                        iPhoneOrderConfig,
+                    })
+                    await sleep(60)
+                }
+                // 连续多次失败(404/403/超时等)：当前会话可能已被风控标记，主动轮换会话自愈
+                if (consecutiveFetchFailCount >= MAX_CONSECUTIVE_FAIL) {
+                    await rotateSessionAndReload(`checkoutx fetch status ${resResult?.status} consecutive fails`)
+                    return {}
+                }
+            } else {
+                console.log(`********** GMfetch failed, NoWait failed **********`)
+            }
+        } else {
+            consecutiveFetchFailCount = 0
+            const resJson = await resResult.json()
+            console.log(`resJson`, resJson)
+            pickupResults =
+                resJson?.body?.checkout?.fulfillment?.pickupTab?.pickup?.storeLocator?.searchResults?.d || {}
+        }
+
+        let partPickupStores = pickupResults?.retailStores || [],
+            pickupNumbers = ''
+        _each(partPickupStores, store => {
+            const {
+                retailAddress,
+                storeDisabled,
+                pickupMessages,
+                availability,
+                storeId: storeNumber,
+                storeName,
+            } = store || {}
+            const { availableNowForAllLines } = availability || {}
+            const { city } = retailAddress || {}
+            // 有时候会搜出周边城市，这里用于排除周边城市
+            const isInCity = city == cityName
+            if (isInCity && pickupMessages?.length && (!storeDisabled || availableNowForAllLines)) {
+                pickupStoreInfo = {
+                    ...pickupStoreInfo,
+                    storeNumber,
+                    storeName,
+                    availableNowForAllLines,
+                }
+                return false
+            }
+        })
+    } catch (e) {
+        console.log(e)
+        if (!isNoWait) {
+            console.log(`********** GMfetch failed, stepWait add 1 sec, and wait 1 min **********`)
+            consecutiveFetchFailCount++
+            iPhoneOrderConfig.stepWait = iPhoneOrderConfig.stepWait + 1
+            // 换一个型号调用，让apple认为是正常请求
+            const randomPartNumberiPhonePro = getRandomModel4Fake()
+            await getStoreCanPickInfo({
+                x_aos_stk,
+                partNumber: randomPartNumberiPhonePro,
+                isNoWait: true,
+                iPhoneOrderConfig,
+            })
+            await sleep(10)
+            // 连续多次网络异常：当前会话可能已被风控标记，主动轮换会话自愈
+            if (consecutiveFetchFailCount >= MAX_CONSECUTIVE_FAIL) {
+                await rotateSessionAndReload(`checkoutx fetch network error consecutive fails`)
+                return {}
+            }
+        } else {
+            console.log(`********** GMfetch failed, NoWait failed **********`)
+        }
+    }
+
+    console.log(`pickupStoreInfo`, pickupStoreInfo)
+    return pickupStoreInfo
+}
+
+export default getStoreCanPickInfo
+
+interface IStoreSearchInPageProps {
+    iPhoneOrderConfig: IPHONEORDER_CONFIG
+    /**
+     * 强制模式：忽略“行政区划已正确就不再点击”的去重逻辑，
+     * 每次调用都重新打开下拉并重选省/市/区——用于无可取货门店时
+     * 反复刷新门店列表（老版本刷库存行为）
+     */
+    force?: boolean
+}
+
+const randomRange = 3
+export const storeSearchInPage = async ({ iPhoneOrderConfig, force }: IStoreSearchInPageProps) => {
+    const storeSearchDataAutom = `fulfillment-pickup-store-search-button`
+    const storeSearchBtn = document.querySelector(`button[data-autom="${storeSearchDataAutom}"]`)
+    if (!storeSearchBtn) return
+
+    // 如果页面已经有门店被选中，不要再打开行政区划下拉，避免界面反复抖动
+    if (getSelectedStoreInUI()?.storeNumber) return
+
+    const { cityName, provinceName } = iPhoneOrderConfig
+    const districtName = normalizeDistrictName(provinceName || '', cityName || '', iPhoneOrderConfig.districtName)
+
+    if (!cityName || !districtName || !provinceName) return
+
+    // 已纠正的情况下，不需要重复点击了（force 模式除外：每轮都重新选择以刷新门店列表）
+    if (!force && storeSearchBtn.textContent) {
+        if (storeSearchBtn.textContent.includes(districtName) && storeSearchBtn.textContent.includes(provinceName)) {
+            return
+        }
+    }
+
+    await randomSleep({ min: 0, max: randomRange })
+    const isSelectionOpen = document.querySelectorAll(`li[role="listitem"]>button`)?.length > 0
+
+    if (!isSelectionOpen) {
+        ;(storeSearchBtn as HTMLButtonElement).click()
+    }
+
+    await randomSleep({ min: 0, max: randomRange })
+
+    const provinceTabBtn = document.getElementById(
+        'checkout.fulfillment.pickupTab.pickup.storeLocator.address.stateCitySelectorForCheckout.state'
+    )
+    provinceTabBtn?.click()
+
+    let hasTheProvince = false
+    if (provinceName) {
+        const provinceItems = document.querySelectorAll(`li[role="listitem"]>button`)
+        _each(provinceItems, p_item => {
+            if (p_item?.textContent?.includes(provinceName)) {
+                ;(p_item as HTMLButtonElement)?.click()
+                hasTheProvince = true
+                return false
+            }
+        })
+        await randomSleep({ min: 0, max: randomRange })
+    }
+
+    const cityTabBtn = document.getElementById(
+        `checkout.fulfillment.pickupTab.pickup.storeLocator.address.stateCitySelectorForCheckout.city`
+    )
+    cityTabBtn?.click()
+    if (hasTheProvince && cityName && cityName != provinceName && cityTabBtn) {
+        const cityItems = document.querySelectorAll(`li[role="listitem"]>button`)
+        _each(cityItems, p_item => {
+            if (p_item?.textContent?.includes(cityName)) {
+                ;(p_item as HTMLButtonElement)?.click()
+                return false
+            }
+        })
+        await randomSleep({ min: 0, max: randomRange })
+    }
+
+    const districtTabBtn = document.getElementById(
+        `checkout.fulfillment.pickupTab.pickup.storeLocator.address.stateCitySelectorForCheckout.district`
+    )
+    districtTabBtn?.click()
+    if (districtName && districtTabBtn) {
+        const districtItems = document.querySelectorAll(`li[role="listitem"]>button`)
+        _each(districtItems, p_item => {
+            if (p_item?.textContent?.includes(districtName)) {
+                ;(p_item as HTMLButtonElement)?.click()
+                return false
+            }
+        })
+        await randomSleep({ min: 0, max: randomRange })
+    }
+}

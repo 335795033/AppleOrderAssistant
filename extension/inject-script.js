@@ -1,0 +1,1 @@
+(()=>{"use strict";!function(t){var s=t.pushState;t.pushState=function(e,o,a){return"function"==typeof t.onpushstate&&t.onpushstate({state:e}),a=a&&a.search(/^http/)>-1?a:"",window.postMessage({action:"doFroApplePages",url:a},"*"),s.apply(t,arguments)},console.log(t.pushState)}(history)})();
