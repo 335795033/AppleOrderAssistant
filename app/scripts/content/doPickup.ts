@@ -6,32 +6,18 @@ import {
     getSelectedStoreInUI,
     waitForClickable,
     isSegmentedSelected,
+    getStoreCards,
+    isStoreAvailableText,
 } from '../../shared/util'
 import { storeSearchInPage } from './getStoreCanPickInfo'
 
 /**
- * 判断门店卡片是否“可取货”：
- * 文案含“可取货/有货”且不含否定词（不可取货/无法取货/暂无货/缺货）。
- * 注意“不可取货”包含“可取货”子串，必须先排除否定词。
- */
-const isStoreAvailableText = (text: string): boolean => {
-    if (!text) return false
-    if (/不可取货|无法取货|暂无货|暂无|缺货|无货|不可售|currently unavailable/i.test(text)) return false
-    return /可取货|有货|可自提|available/i.test(text)
-}
-
-/**
  * 扫描门店列表，找到一个“可取货”且可选的门店卡片。
- * 卡片结构无法 100% 确定，这里做多路兜底：
- *   1. .rf-hcard / [class*="hcard"] 卡片
- *   2. 含 store radio(input[name*="store"]) 的列表项容器
+ * 新版结账页卡片为 div.form-selector（input[name="store-locator-result"] + label.form-selector-label），
+ * 兼容旧版 .rf-hcard 等结构，见 util.ts 的 APPLE_STORE_CARD_SELECTOR。
  */
 const findAvailableStoreCard = (): { el: HTMLElement; radio: HTMLElement | null; storeName: string } | null => {
-    const candidates = Array.from(
-        document.querySelectorAll(
-            '.rf-hcard, [class*="hcard"], li[class*="store"], div[class*="storecard"], div[class*="store-card"]'
-        )
-    ) as HTMLElement[]
+    const candidates = getStoreCards()
 
     for (const card of candidates) {
         if (card.offsetParent === null) continue
@@ -40,7 +26,10 @@ const findAvailableStoreCard = (): { el: HTMLElement; radio: HTMLElement | null;
         if (!text) continue
 
         const radio = card.querySelector('input[type="radio"]') as HTMLInputElement | null
-        const name = (card.querySelector('[class*="title"], [class*="name"]')?.textContent || '').trim()
+        const name = (
+            card.querySelector('.form-selector-title, .rf-hcard-store-title, [class*="title"], [class*="name"]')
+                ?.textContent || ''
+        ).trim()
 
         // 有 radio：以 radio 的 disabled 状态 + 文案共同判断
         if (radio) {
@@ -132,7 +121,18 @@ export const doPickupFulfillment = async (iPhoneOrderConfig: IPHONEORDER_CONFIG)
             const card = findAvailableStoreCard()
             if (card) {
                 console.log(`[Adzapple助手] 发现可取货门店：${card.storeName}，点击选中`)
-                ;(card.radio || card.el).click()
+                const radio = card.radio as HTMLInputElement | null
+                if (radio) {
+                    radio.click()
+                    // 程序化点击 radio 偶发不触发 React 状态更新：未选中时回退点击卡片 label
+                    await sleep(0.3, 'wait store radio checked')
+                    if (!radio.checked) {
+                        console.warn(`[Adzapple助手] radio 点击未生效，回退点击卡片 label`)
+                        ;(card.el.querySelector('label') || card.el).click()
+                    }
+                } else {
+                    card.el.click()
+                }
                 await sleep(1 + Math.random(), 'wait store selected in UI')
                 const btn = await waitForClickable(getPickupContinueButton, 3000)
                 if (btn) {

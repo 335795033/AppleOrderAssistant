@@ -1,6 +1,6 @@
 import { IPHONEORDER_CONFIG } from '../../shared/interface'
 import { applePageUrl, iPhoneModels, fetchHeaders, defaultAres, normalizeDistrictName } from '../../shared/constants'
-import { sleep, randomSleep, getSelectedStoreInUI } from '../../shared/util'
+import { sleep, randomSleep, getSelectedStoreInUI, getStoreCards } from '../../shared/util'
 import { rotateSessionAndReload } from './errorRecover'
 import crossfetch from 'cross-fetch'
 import { each as _each, map as _map } from 'lodash'
@@ -226,29 +226,43 @@ interface IStoreSearchInPageProps {
     force?: boolean
 }
 
-const waitForRegionText = async (expected: string, timeoutMs = 5000): Promise<boolean> => {
+/**
+ * 等待顶部“编辑邮编或城市、区县”按钮文案更新为期望的行政区。
+ * 注意直辖市（北京/上海/天津/重庆）按钮只显示 “省 区”两级（如 “重庆 渝中区”），
+ * 不存在 “重庆 重庆 渝中区” 这样的重复市级文案，因此用多个候选匹配。
+ */
+const waitForRegionText = async (candidates: string[], timeoutMs = 5000): Promise<boolean> => {
+    const expectedList = candidates.map(c => (c || '').replace(/\s+/g, '')).filter(Boolean)
     const start = Date.now()
     while (Date.now() - start < timeoutMs) {
         const searchButton = document.querySelector(
             'button[data-autom="fulfillment-pickup-store-search-button"]'
         ) as HTMLElement | null
         const text = (searchButton?.textContent || '').replace(/\s+/g, '')
-        if (text.includes(expected.replace(/\s+/g, ''))) return true
+        if (text && expectedList.some(expected => text.includes(expected))) return true
         await sleep(0.2, 'wait pickup region update')
     }
     return false
 }
 
-const waitForStoreListRefresh = async (beforeText: string, timeoutMs = 8000): Promise<boolean> => {
+/**
+ * 等待门店列表刷新：列表文案与刷新前不同即认为刷新完成。
+ * 若行政区已确认且重选的是同一区（列表内容大概率不变），等一小段后直接放行，
+ * 避免每轮固定白等 8 秒。
+ */
+const waitForStoreListRefresh = async (
+    beforeText: string,
+    regionConfirmed = false,
+    timeoutMs = 8000
+): Promise<boolean> => {
     const start = Date.now()
     while (Date.now() - start < timeoutMs) {
-        const cards = document.querySelectorAll(
-            '.rf-hcard, [class*="hcard"], li[class*="store"], div[class*="storecard"], div[class*="store-card"]'
-        )
+        const cards = getStoreCards()
         const currentText = Array.from(cards)
             .map(card => card.textContent || '')
             .join('|')
         if (cards.length > 0 && currentText !== beforeText) return true
+        if (regionConfirmed && cards.length > 0 && Date.now() - start > 3000) return true
         await sleep(0.2, 'wait pickup store list refresh')
     }
     return false
@@ -275,15 +289,16 @@ export const storeSearchInPage = async ({ iPhoneOrderConfig, force }: IStoreSear
         }
     }
 
-    const beforeCards = document.querySelectorAll(
-        '.rf-hcard, [class*="hcard"], li[class*="store"], div[class*="storecard"], div[class*="store-card"]'
-    )
+    const beforeCards = getStoreCards()
     const beforeText = Array.from(beforeCards)
         .map(card => card.textContent || '')
         .join('|')
 
     await randomSleep({ min: 0, max: randomRange })
-    const isSelectionOpen = document.querySelectorAll(`li[role="listitem"]>button`)?.length > 0
+    // 用 aria-expanded 判断行政区划下拉是否已展开。
+    // 不能用面板里选项的数量判断：下拉收起时省/区两个面板的选项也存在于 DOM（height:0），
+    // 旧逻辑会误判为“已展开”，导致从不点开下拉，后续点击全落在隐藏面板上。
+    const isSelectionOpen = (storeSearchBtn as HTMLElement).getAttribute('aria-expanded') === 'true'
 
     if (!isSelectionOpen) {
         ;(storeSearchBtn as HTMLButtonElement).click()
@@ -329,20 +344,37 @@ export const storeSearchInPage = async ({ iPhoneOrderConfig, force }: IStoreSear
     )
     districtTabBtn?.click()
     if (districtName && districtTabBtn) {
-        const districtItems = document.querySelectorAll(`li[role="listitem"]>button`)
+        const districtItems = Array.from(document.querySelectorAll(`li[role="listitem"]>button`))
+        let districtClicked = false
         _each(districtItems, p_item => {
             if (p_item?.textContent?.includes(districtName)) {
                 ;(p_item as HTMLButtonElement)?.click()
+                districtClicked = true
                 return false
             }
         })
+        // 兜底：部分省份第二级面板列出的是“市”而非“区县”，找不到区县时退回按城市名匹配
+        if (!districtClicked && cityName) {
+            _each(districtItems, p_item => {
+                if (p_item?.textContent?.includes(cityName)) {
+                    ;(p_item as HTMLButtonElement)?.click()
+                    return false
+                }
+            })
+        }
         await randomSleep({ min: 0, max: randomRange })
     }
 
-    const expectedRegion = `${provinceName}${cityName}${districtName}`
-    const regionUpdated = await waitForRegionText(expectedRegion)
-    const listUpdated = await waitForStoreListRefresh(beforeText)
+    // 直辖市按钮文案为“省 区”两级（如 “重庆 渝中区”），无重复市级；其余省份为“省 市 区”三级。
+    // 多候选匹配，哪种文案都能确认。
+    const regionCandidates = [
+        `${provinceName}${cityName}${districtName}`,
+        `${provinceName}${districtName}`,
+        `${cityName}${districtName}`,
+    ]
+    const regionUpdated = await waitForRegionText(regionCandidates)
+    const listUpdated = await waitForStoreListRefresh(beforeText, regionUpdated)
     if (!regionUpdated && !listUpdated) {
-        console.warn(`[Adzapple助手] 行政区或门店列表未确认刷新完成`, expectedRegion)
+        console.warn(`[Adzapple助手] 行政区或门店列表未确认刷新完成`, regionCandidates.join('/'))
     }
 }
