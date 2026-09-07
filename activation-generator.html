@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>三丈apple助手 激活码生成器</title>
+<title>Adzapple助手 激活码生成器</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -20,10 +20,11 @@
   h1 { font-size: 20px; margin-bottom: 6px; }
   .sub { font-size: 12px; color: #9a9fb0; margin-bottom: 24px; line-height: 1.6; }
   label { display: block; font-size: 13px; color: #c3c7d4; margin-bottom: 8px; }
-  input[type="date"] {
+  input[type="date"], input[type="text"] {
     width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #3a3d4f;
     background: #16171d; color: #e6e6e6; font-size: 15px; outline: none;
   }
+  input[type="text"] { font-family: "SF Mono", Consolas, monospace; letter-spacing: 1px; text-transform: uppercase; }
   .row { display: flex; gap: 12px; margin-top: 12px; }
   button {
     flex: 1; padding: 10px 0; border: 0; border-radius: 8px; font-size: 15px; cursor: pointer;
@@ -44,10 +45,13 @@
 </head>
 <body>
 <div class="card">
-  <h1>三丈apple助手 激活码生成器</h1>
-  <p class="sub">本地生成，无需联网。<br/>激活码为 <b>IPO-到期日期-随机盐-签名</b> 格式（SHA-256 签名，每次生成结果不同），到期日当天 23:59:59 前有效。</p>
+  <h1>Adzapple助手 激活码生成器</h1>
+  <p class="sub">本地生成，无需联网。<br/>激活码为 <b>IPO-到期日期-设备码-随机盐-签名</b> 格式（SHA-256 签名，每次生成结果不同），到期日当天 23:59:59 前有效。<br/>激活码与设备码绑定：<b>一个激活码只能在一台电脑/浏览器上使用一次</b>，无法多设备共用。</p>
 
-  <label for="expiry">选择到期日期（当天有效）</label>
+  <label for="deviceId">设备码（让使用方打开扩展弹窗复制「本机设备码」发给你）</label>
+  <input type="text" id="deviceId" maxlength="32" placeholder="如 3FA9C2D41B0E5786，共 16 位" autocomplete="off" spellcheck="false" />
+
+  <label for="expiry" style="margin-top:16px">选择到期日期（当天有效）</label>
   <input type="date" id="expiry" />
   <div class="row">
     <button class="primary" onclick="generate()">生成激活码</button>
@@ -57,7 +61,7 @@
   <div class="output-wrap" id="outputWrap">
     <div class="output" id="output"></div>
     <div class="error" id="error"></div>
-    <p class="tip">提示：把激活码发给使用方，对方在扩展弹窗点击「确认」开启自动抢购时输入即可。<br/>到期前再次开启无需重复输入；到期后需重新生成并激活。<br/>注意：旧版（IPO-日期-7位校验码）激活码已全部失效，请使用本生成器重新生成。</p>
+    <p class="tip">提示：让使用方在扩展弹窗复制「本机设备码」发给你 → 填入设备码与到期日期生成激活码发给对方。<br/>激活码只能在该设备码对应的电脑上激活（该电脑所有浏览器通用）；到期前再次开启无需重复输入，到期后需重新生成并激活。<br/>注意：旧版（IPO-日期-盐-签名 4 段、无设备码）激活码已全部失效，请使用本生成器重新生成。</p>
   </div>
 </div>
 
@@ -129,12 +133,18 @@
     return salt;
   }
 
-  function signature(expiry8, salt) {
-    return sha256Hex(SECRET + '|' + expiry8 + '|' + salt).slice(0, 32).toUpperCase();
+  function signature(expiry8, deviceId, salt) {
+    return sha256Hex(SECRET + '|' + expiry8 + '|' + deviceId + '|' + salt).slice(0, 32).toUpperCase();
   }
 
   function to8(dateStr) {
     return dateStr.replace(/-/g, ''); // yyyy-mm-dd -> yyyymmdd
+  }
+
+  // 归一化设备码：去掉空白/连字符等无关字符并转大写；非法返回空串（与扩展内 normalizeDeviceId 一致）
+  function normalizeDevice(raw) {
+    var id = String(raw || '').replace(/[^0-9a-zA-Z]/g, '').toUpperCase();
+    return /^[0-9A-F]{16}$/.test(id) ? id : '';
   }
 
   function generate() {
@@ -143,6 +153,13 @@
     var out = document.getElementById('output');
     var err = document.getElementById('error');
     err.style.display = 'none';
+    err.style.color = '';
+    var device = normalizeDevice(document.getElementById('deviceId').value);
+    if (!device) {
+      err.textContent = '请先填写 16 位设备码（让使用方在扩展弹窗复制「本机设备码」发给你）';
+      err.style.display = 'block';
+      return;
+    }
     if (!input.value) {
       err.textContent = '请先选择到期日期';
       err.style.display = 'block';
@@ -150,7 +167,7 @@
     }
     var expiry = to8(input.value);
     var salt = makeSalt();
-    var code = PREFIX + '-' + expiry + '-' + salt + '-' + signature(expiry, salt);
+    var code = PREFIX + '-' + expiry + '-' + device + '-' + salt + '-' + signature(expiry, device, salt);
     out.textContent = code;
     wrap.style.display = 'block';
   }

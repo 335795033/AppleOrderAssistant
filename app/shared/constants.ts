@@ -148,12 +148,12 @@ export const iPhoneModels = {
 export enum storeKeys {
     orderEnabled = `orderEnabled`,
     orderConfig = `orderConfig`,
-    /** 激活码验证通过后写入的过期时间戳(ms)，未过期前开启自动抢购无需再次验证 */
+    /** 激活码验证通过后写入的过期时间戳(ms)，存在 chrome.storage.local（不随账号同步，激活状态只属于本机） */
     activationValidUntil = `activationValidUntil`,
 }
 
 // 激活码内置密钥：用于校验激活码签名（与本地生成器 activation-generator.html 保持一致）
-// 激活码格式：IPO-<YYYYMMDD>-<8位随机盐>-<32位SHA-256签名>，到期日为当天 23:59:59
+// 激活码格式：IPO-<YYYYMMDD>-<16位设备码>-<8位随机盐>-<32位SHA-256签名>，到期日为当天 23:59:59
 export const ACTIVATION_SECRET = 'SZzh@ng-Apple#2026#vN8wK2xQ7mR4tL9pZ3fJ6bH5cY1dG0sA'
 
 export const applePageUrl = {
@@ -373,11 +373,7 @@ export const defaultAres = {
  * 旧配置里保存的 江北区/渝北区 在运行时自动归一化为 两江新区，
  * 避免用户在重新打开配置页保存前，插件仍用已失效的区名去请求苹果导致 404。
  */
-export const normalizeDistrictName = (
-    provinceName: string,
-    _cityName: string,
-    districtName?: string
-): string => {
+export const normalizeDistrictName = (provinceName: string, _cityName: string, districtName?: string): string => {
     if (!districtName) return districtName || ''
     const isChongqing = provinceName === '重庆' || provinceName === '重庆市'
     if (isChongqing && (districtName === '江北区' || districtName === '渝北区')) {

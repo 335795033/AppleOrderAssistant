@@ -1,6 +1,14 @@
 import { IPHONEORDER_CONFIG } from '../../shared/interface'
 import { pageElementsId, normalizeDistrictName } from '../../shared/constants'
-import { sleep, randomSleep, getElemByID, getElemBySelectorAndText, changeInputValue, waitForClickable } from '../../shared/util'
+import {
+    sleep,
+    randomSleep,
+    getElemByID,
+    getElemBySelectorAndText,
+    changeInputValue,
+    waitForClickable,
+    isSegmentedSelected,
+} from '../../shared/util'
 
 const { checkout: checkoutElems } = pageElementsId
 
@@ -26,7 +34,7 @@ const selectNearestDeliverySpeed = async (): Promise<boolean> => {
             )
         ) as HTMLInputElement[]
         if (!radios.length) {
-            console.warn(`[三丈apple助手] 未找到配送速度单选框`)
+            console.warn(`[Adzapple助手] 未找到配送速度单选框`)
             return false
         }
 
@@ -36,22 +44,24 @@ const selectNearestDeliverySpeed = async (): Promise<boolean> => {
             return (label?.textContent || radio.getAttribute('aria-label') || '').trim()
         }
 
-        const target = radios.find(r => r.offsetParent !== null)
+        const target = radios.find(
+            r => r.offsetParent !== null && !r.disabled && r.getAttribute('aria-disabled') !== 'true'
+        )
         if (!target) return false
 
         const targetText = readLabel(target)
         if (target.checked) {
-            console.log(`[三丈apple助手] 配送速度已是第一个可选项：${targetText}`)
+            console.log(`[Adzapple助手] 配送速度已是第一个可选项：${targetText}`)
             return true
         }
         // 点配套 label（radio 本身可能被样式隐藏，label 与 input 通过 for 关联）
         const targetLabel = document.querySelector(`label[for="${target.id}"]`) as HTMLElement | null
-        console.log(`[三丈apple助手] 选择配送速度（第一个可选项）：${targetText}`)
+        console.log(`[Adzapple助手] 选择配送速度（第一个可选项）：${targetText}`)
         ;(targetLabel || target).click()
         await randomSleep({ min: 0.3, max: 0.8 })
         return true
     } catch (e) {
-        console.error(`[三丈apple助手] selectNearestDeliverySpeed error`, e)
+        console.error(`[Adzapple助手] selectNearestDeliverySpeed error`, e)
     }
     return false
 }
@@ -63,7 +73,9 @@ const selectNearestDeliverySpeed = async (): Promise<boolean> => {
 const getDeliveryOverlay = (): HTMLElement | null => {
     const container =
         (document.querySelector('#ts-fulfillment-addressoverlay') as HTMLElement | null) ||
-        (document.querySelector('div[id*="fulfillment-addressoverlay"], div[class*="addressoverlay"]') as HTMLElement | null)
+        (document.querySelector(
+            'div[id*="fulfillment-addressoverlay"], div[class*="addressoverlay"]'
+        ) as HTMLElement | null)
     if (container && container.offsetParent !== null) return container
     // 兜底：弹窗内任意字段可见即认为弹窗打开
     const field = document.querySelector(
@@ -84,7 +96,7 @@ const getDeliveryOverlay = (): HTMLElement | null => {
 const fillDeliveryAddressModal = async (iPhoneOrderConfig: IPHONEORDER_CONFIG): Promise<boolean> => {
     const overlay = getDeliveryOverlay()
     if (!overlay) return false
-    console.log(`[三丈apple助手] 检测到「预定时间快递送货」地址弹窗，开始填写`)
+    console.log(`[Adzapple助手] 检测到「预定时间快递送货」地址弹窗，开始填写`)
 
     const provinceName = iPhoneOrderConfig.provinceName || ''
     const cityName = iPhoneOrderConfig.cityName || ''
@@ -93,7 +105,7 @@ const fillDeliveryAddressModal = async (iPhoneOrderConfig: IPHONEORDER_CONFIG): 
     const street2 = iPhoneOrderConfig.shippingStreet2 || ''
 
     if (!districtName || !street) {
-        console.warn(`[三丈apple助手] 送货地址信息不完整，请在配置页填写省/市/区/详细地址`)
+        console.warn(`[Adzapple助手] 送货地址信息不完整，请在配置页填写省/市/区/详细地址`)
         return false
     }
 
@@ -112,7 +124,8 @@ const fillDeliveryAddressModal = async (iPhoneOrderConfig: IPHONEORDER_CONFIG): 
         //    不一致时尝试展开 stateCitySelectorForCheckout 并在其中的 select 里选对应项
         const regionTextEl = overlay.querySelector('button span, .rf-form-layout-status, [class*="status"]')
         const regionText = regionTextEl?.textContent || ''
-        const regionOK = regionText.includes(districtName) || (regionText.includes('重庆') && districtName.includes('两江新区'))
+        const regionOK =
+            regionText.includes(districtName) || (regionText.includes('重庆') && districtName.includes('两江新区'))
         if (!regionOK) {
             const selects = Array.from(
                 overlay.querySelectorAll(
@@ -136,7 +149,7 @@ const fillDeliveryAddressModal = async (iPhoneOrderConfig: IPHONEORDER_CONFIG): 
                 }
             }
         } else {
-            console.log(`[三丈apple助手] 弹窗收货地址已是 ${districtName}，跳过省市区修改`)
+            console.log(`[Adzapple助手] 弹窗收货地址已是 ${districtName}，跳过省市区修改`)
         }
 
         // 2) 详细地址（注意 street2 的 id 也包含 .street，必须用 $= 精确结尾匹配）
@@ -149,7 +162,9 @@ const fillDeliveryAddressModal = async (iPhoneOrderConfig: IPHONEORDER_CONFIG): 
         }
 
         // 3) 附加详细地址
-        const street2Input = document.querySelector('input[id$="addressStreets.address.street2"]') as HTMLInputElement | null
+        const street2Input = document.querySelector(
+            'input[id$="addressStreets.address.street2"]'
+        ) as HTMLInputElement | null
         if (street2Input && street2 && !street2Input.value && !street2Input.disabled) {
             changeInputValue(street2Input, street2)
             await randomSleep({ min: 0.2, max: 0.5 })
@@ -157,29 +172,31 @@ const fillDeliveryAddressModal = async (iPhoneOrderConfig: IPHONEORDER_CONFIG): 
 
         // 4) 点击“使用”按钮
         const applyBtn =
-            (overlay.querySelector('button[data-autom*="Addressapply"], button[data-autom*="apply"]') as HTMLButtonElement | null) ||
+            (overlay.querySelector(
+                'button[data-autom*="Addressapply"], button[data-autom*="apply"]'
+            ) as HTMLButtonElement | null) ||
             (Array.from(overlay.querySelectorAll('button')).find(
                 b => (b.textContent || '').trim() === '使用' && b.offsetParent !== null
             ) as HTMLButtonElement | undefined)
         if (!applyBtn) {
-            console.warn(`[三丈apple助手] 弹窗内未找到「使用」按钮`)
+            console.warn(`[Adzapple助手] 弹窗内未找到「使用」按钮`)
             return false
         }
-        console.log(`[三丈apple助手] 点击弹窗「使用」按钮`)
+        console.log(`[Adzapple助手] 点击弹窗「使用」按钮`)
         applyBtn.click()
 
         // 5) 等待弹窗关闭
         for (let i = 0; i < 12; i++) {
             await sleep(0.5, 'wait delivery address overlay close')
             if (!getDeliveryOverlay()) {
-                console.log(`[三丈apple助手] 地址弹窗已关闭`)
+                console.log(`[Adzapple助手] 地址弹窗已关闭`)
                 return true
             }
         }
-        console.warn(`[三丈apple助手] 地址弹窗长时间未关闭`)
+        console.warn(`[Adzapple助手] 地址弹窗长时间未关闭`)
         return false
     } catch (e) {
-        console.error(`[三丈apple助手] fillDeliveryAddressModal error`, e)
+        console.error(`[Adzapple助手] fillDeliveryAddressModal error`, e)
     }
     return false
 }
@@ -194,7 +211,13 @@ const selectNearestDeliveryDateTime = async (): Promise<boolean> => {
             document.querySelectorAll('[data-autom*="deliveryDate"], [data-autom*="delivery-date"]')
         ) as HTMLElement[]
         if (dateOptions.length) {
-            const firstDate = dateOptions.find(el => el.offsetParent !== null)
+            const firstDate = dateOptions.find(
+                el =>
+                    el.offsetParent !== null &&
+                    !(el as HTMLButtonElement).disabled &&
+                    el.getAttribute('aria-disabled') !== 'true' &&
+                    !el.closest('[aria-disabled="true"], .disabled, [class*="disabled"]')
+            )
             if (firstDate) {
                 firstDate.click()
                 await randomSleep({ min: 0.3, max: 0.7 })
@@ -214,9 +237,39 @@ const selectNearestDeliveryDateTime = async (): Promise<boolean> => {
             }
         }
     } catch (e) {
-        console.error(`[三丈apple助手] selectNearestDeliveryDateTime error`, e)
+        console.error(`[Adzapple助手] selectNearestDeliveryDateTime error`, e)
     }
     return false
+}
+
+const fillShippingRegion = async (config: IPHONEORDER_CONFIG): Promise<boolean> => {
+    const province = config.provinceName || ''
+    const city = config.cityName || ''
+    const district = normalizeDistrictName(province, city, config.districtName)
+    if (!province || !city || !district) return false
+
+    const regionButton = Array.from(document.querySelectorAll('button, [role="button"]')).find(
+        el => (el as HTMLElement).offsetParent !== null && /选择地区|地区/.test((el.textContent || '').trim())
+    ) as HTMLElement | undefined
+    if (!regionButton) return true
+    regionButton.click()
+    await sleep(0.3, 'wait shipping region menu')
+
+    const choose = async (name: string) => {
+        const item = Array.from(document.querySelectorAll('li button, [role="option"], li')).find(
+            el => (el as HTMLElement).offsetParent !== null && (el.textContent || '').trim() === name
+        ) as HTMLElement | undefined
+        if (!item) return false
+        item.click()
+        await sleep(0.3, 'wait shipping region selection')
+        return true
+    }
+
+    const provinceOK = await choose(province)
+    if (!provinceOK) return false
+    if (city !== province && !(await choose(city))) return false
+    if (!(await choose(district))) return false
+    return true
 }
 
 /**
@@ -227,26 +280,25 @@ export const doDeliveryFulfillment = async (iPhoneOrderConfig: IPHONEORDER_CONFI
     try {
         // 切到“为我送货”
         const shippingTab = getElemBySelectorAndText('div.rc-segmented-control-text', '为我送货')
-        if (shippingTab) {
-            // 向上检查是否已选中
-            let node: HTMLElement | null = shippingTab
-            let isSelected = false
-            for (let i = 0; i < 3 && node; i++) {
-                if (node.getAttribute?.('aria-selected') === 'true' || /selected|active/i.test(node.className || '')) {
-                    isSelected = true
-                    break
-                }
-                node = node.parentElement
+        if (shippingTab && !isSegmentedSelected(shippingTab)) {
+            shippingTab.click()
+            const start = Date.now()
+            while (Date.now() - start < 5000 && !isSegmentedSelected(shippingTab)) {
+                await sleep(0.1, 'wait for shipping tab selected')
             }
-            if (!isSelected) {
-                shippingTab.click()
-                await sleep(1.2 + Math.random() * 1.5, 'wait for shipping tab render')
-            }
+            await sleep(0.3, 'wait for shipping tab render')
         }
 
         // 若弹窗在上次运行时已经打开，先处理掉
         if (getDeliveryOverlay()) {
             await fillDeliveryAddressModal(iPhoneOrderConfig)
+        }
+
+        // 选择送货地区：该页面的必填地区控件必须先完成，否则继续按钮不会推进
+        const regionOK = await fillShippingRegion(iPhoneOrderConfig)
+        if (!regionOK) {
+            console.warn(`[Adzapple助手] 送货地区未选择完成，暂不点击继续按钮`)
+            return false
         }
 
         // 选择配送速度（直接选第一个可选项，避开会弹预订弹窗的“今天送达”）
@@ -258,7 +310,7 @@ export const doDeliveryFulfillment = async (iPhoneOrderConfig: IPHONEORDER_CONFI
             if (getDeliveryOverlay()) {
                 const filled = await fillDeliveryAddressModal(iPhoneOrderConfig)
                 if (!filled) {
-                    console.warn(`[三丈apple助手] 地址弹窗处理未成功，稍后重试`)
+                    console.warn(`[Adzapple助手] 地址弹窗处理未成功，稍后重试`)
                     await sleep(1.5, 'wait before overlay retry')
                     continue
                 }
@@ -274,13 +326,13 @@ export const doDeliveryFulfillment = async (iPhoneOrderConfig: IPHONEORDER_CONFI
         // 点击“继续填写送货地址”
         const continueBtn = (await waitForClickable(getShippingContinueButton, 3000)) as HTMLButtonElement | null
         if (continueBtn) {
-            console.log(`[三丈apple助手] 点击继续填写送货地址:`, continueBtn)
+            console.log(`[Adzapple助手] 点击继续填写送货地址:`, continueBtn)
             continueBtn.click()
             return true
         }
-        console.warn(`[三丈apple助手] 未等到可点击的继续按钮（fulfillment）`)
+        console.warn(`[Adzapple助手] 未等到可点击的继续按钮（fulfillment）`)
     } catch (e) {
-        console.error(`[三丈apple助手] doDeliveryFulfillment error`, e)
+        console.error(`[Adzapple助手] doDeliveryFulfillment error`, e)
     }
     return false
 }
@@ -314,7 +366,7 @@ const getShippingContinueButton = (): HTMLButtonElement | null => {
     for (const sel of selectors) {
         const btn = document.querySelector(sel) as HTMLButtonElement | null
         if (btn && btn.offsetParent !== null) {
-            console.log(`[三丈apple助手] 找到继续按钮(selector=${sel}):`, btn.textContent?.trim())
+            console.log(`[Adzapple助手] 找到继续按钮(selector=${sel}):`, btn.textContent?.trim())
             return btn
         }
     }
@@ -325,12 +377,15 @@ const getShippingContinueButton = (): HTMLButtonElement | null => {
         // 双重保险：跳过送货政策/帮助区域内的元素（如 a[data-autom="view-apple-shipping-policy"]）
         if (btn.closest('.rs-fulfillment-policylink, [data-autom*="policy"], [class*="policy"]')) continue
         const text = (btn.textContent || '').trim()
-        if (/继续选择付款方式|继续填写送货地址|继续|付款方式/.test(text) && (btn as HTMLElement).offsetParent !== null) {
-            console.log(`[三丈apple助手] 找到继续按钮(text=${text})`)
+        if (
+            /继续选择付款方式|继续填写送货地址|继续|付款方式/.test(text) &&
+            (btn as HTMLElement).offsetParent !== null
+        ) {
+            console.log(`[Adzapple助手] 找到继续按钮(text=${text})`)
             return btn as HTMLButtonElement
         }
     }
-    console.warn(`[三丈apple助手] 未找到继续按钮`)
+    console.warn(`[Adzapple助手] 未找到继续按钮`)
     return null
 }
 
@@ -351,7 +406,7 @@ const selectFapiaoIfNeeded = async (fapiaoType?: string, fapiaoTitle?: string): 
         '[data-autom*="fapiao"], [data-autom*="invoice"], [class*="fapiao"], [class*="invoice"], section[aria-label*="发票"], fieldset[aria-label*="发票"]'
     )
     if (!invoiceSection) {
-        console.warn(`[三丈apple助手] 未找到发票区域，跳过发票选择`)
+        console.warn(`[Adzapple助手] 未找到发票区域，跳过发票选择`)
         return
     }
 
@@ -363,7 +418,7 @@ const selectFapiaoIfNeeded = async (fapiaoType?: string, fapiaoTitle?: string): 
         return text.includes(targetLabel)
     })
     if (alreadySelected) {
-        console.log(`[三丈apple助手] 发票已是目标类型(${targetLabel})，无需点击`)
+        console.log(`[Adzapple助手] 发票已是目标类型(${targetLabel})，无需点击`)
         return
     }
 
@@ -371,11 +426,11 @@ const selectFapiaoIfNeeded = async (fapiaoType?: string, fapiaoTitle?: string): 
         el.textContent?.includes(targetLabel)
     ) as HTMLElement | undefined
     if (target) {
-        console.log(`[三丈apple助手] 选择发票类型：`, targetLabel)
+        console.log(`[Adzapple助手] 选择发票类型：`, targetLabel)
         target.click()
         await randomSleep({ min: 0.3, max: 0.6 })
     } else {
-        console.warn(`[三丈apple助手] 未找到发票选项：`, targetLabel)
+        console.warn(`[Adzapple助手] 未找到发票选项：`, targetLabel)
     }
 
     if ((fapiaoType === 'company' || fapiaoType === 'vat') && fapiaoTitle) {
@@ -395,7 +450,7 @@ const selectFapiaoIfNeeded = async (fapiaoType?: string, fapiaoTitle?: string): 
  */
 export const doShippingAddressPage = async (iPhoneOrderConfig: IPHONEORDER_CONFIG): Promise<boolean> => {
     try {
-        console.log(`[三丈apple助手] doShippingAddressPage start`)
+        console.log(`[Adzapple助手] doShippingAddressPage start`)
         const {
             lastName,
             firstName,
@@ -410,7 +465,7 @@ export const doShippingAddressPage = async (iPhoneOrderConfig: IPHONEORDER_CONFI
 
         // 1) 若页面已有默认/已选地址，跳过隐藏字段填写
         if (hasSelectedShippingAddress()) {
-            console.log(`[三丈apple助手] 检测到已有默认/已选送货地址，不再填写隐藏地址字段`)
+            console.log(`[Adzapple助手] 检测到已有默认/已选送货地址，不再填写隐藏地址字段`)
         } else {
             // 尝试填写可见的地址输入
             const streetInput = getElemByID(checkoutElems.shippingAddress.street) as HTMLInputElement | null
@@ -447,13 +502,13 @@ export const doShippingAddressPage = async (iPhoneOrderConfig: IPHONEORDER_CONFI
         // 4) 点击“继续选择付款方式”
         const continueBtn = (await waitForClickable(getShippingContinueButton, 3000)) as HTMLButtonElement | null
         if (continueBtn) {
-            console.log(`[三丈apple助手] 点击继续选择付款方式:`, continueBtn)
+            console.log(`[Adzapple助手] 点击继续选择付款方式:`, continueBtn)
             continueBtn.click()
             return true
         }
-        console.warn(`[三丈apple助手] 未等到可点击的继续按钮，准备重试/刷新`)
+        console.warn(`[Adzapple助手] 未等到可点击的继续按钮，准备重试/刷新`)
     } catch (e) {
-        console.error(`[三丈apple助手] doShippingAddressPage error`, e)
+        console.error(`[Adzapple助手] doShippingAddressPage error`, e)
     }
     return false
 }

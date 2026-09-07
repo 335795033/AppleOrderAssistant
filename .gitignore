@@ -52,8 +52,8 @@ package-lock.json
 # zip file
 *.zip
 
-# 顶层解压残留目录（如 SanZhangApple_vX、SanZhangApple_vX.Y）
-/SanZhangApple_v*/
+# 顶层解压残留目录（如 AdzApple_vX、AdzApple_vX.Y）
+/AdzApple_v*/
 
 
 # license

@@ -38,14 +38,14 @@ const getStoreCanPickInfo = async ({
     // 若页面 UI 已经选中某个门店，直接复用，避免重复调用搜索接口和循环点选区划
     const selectedStore = getSelectedStoreInUI()
     if (selectedStore?.storeNumber) {
-        console.log(`[三丈apple助手] 页面 UI 已选中门店，直接使用`, selectedStore)
+        console.log(`[Adzapple助手] 页面 UI 已选中门店，直接使用`, selectedStore)
         return {
             ...selectedStore,
             availableNowForAllLines: true,
         }
     }
 
-    storeSearchInPage({ iPhoneOrderConfig })
+    await storeSearchInPage({ iPhoneOrderConfig })
     let pickupStoreInfo: Record<string, any> = {}
     const { host, protocol } = window.location || {}
     // let url = `${protocol}//www.apple.com.cn/shop/fulfillment-messages`
@@ -165,10 +165,17 @@ const getStoreCanPickInfo = async ({
                 storeName,
             } = store || {}
             const { availableNowForAllLines } = availability || {}
-            const { city } = retailAddress || {}
-            // 有时候会搜出周边城市，这里用于排除周边城市
-            const isInCity = city == cityName
-            if (isInCity && pickupMessages?.length && (!storeDisabled || availableNowForAllLines)) {
+            const { city, state, province, district, county } = retailAddress || {}
+            // 优先按完整行政区过滤；接口缺少某一级字段时，再退回城市过滤，避免把周边城市门店混入结果。
+            const sameCity = String(city || '').trim() === String(cityName).trim()
+            const sameProvince =
+                (!state && !province) ||
+                [state, province].some(value => String(value || '').trim() === String(provinceName).trim())
+            const sameDistrict =
+                (!district && !county) ||
+                [district, county].some(value => String(value || '').trim() === String(districtName).trim())
+            const isInConfiguredArea = sameCity && sameProvince && sameDistrict
+            if (isInConfiguredArea && pickupMessages?.length && (!storeDisabled || availableNowForAllLines)) {
                 pickupStoreInfo = {
                     ...pickupStoreInfo,
                     storeNumber,
@@ -219,6 +226,34 @@ interface IStoreSearchInPageProps {
     force?: boolean
 }
 
+const waitForRegionText = async (expected: string, timeoutMs = 5000): Promise<boolean> => {
+    const start = Date.now()
+    while (Date.now() - start < timeoutMs) {
+        const searchButton = document.querySelector(
+            'button[data-autom="fulfillment-pickup-store-search-button"]'
+        ) as HTMLElement | null
+        const text = (searchButton?.textContent || '').replace(/\s+/g, '')
+        if (text.includes(expected.replace(/\s+/g, ''))) return true
+        await sleep(0.2, 'wait pickup region update')
+    }
+    return false
+}
+
+const waitForStoreListRefresh = async (beforeText: string, timeoutMs = 8000): Promise<boolean> => {
+    const start = Date.now()
+    while (Date.now() - start < timeoutMs) {
+        const cards = document.querySelectorAll(
+            '.rf-hcard, [class*="hcard"], li[class*="store"], div[class*="storecard"], div[class*="store-card"]'
+        )
+        const currentText = Array.from(cards)
+            .map(card => card.textContent || '')
+            .join('|')
+        if (cards.length > 0 && currentText !== beforeText) return true
+        await sleep(0.2, 'wait pickup store list refresh')
+    }
+    return false
+}
+
 const randomRange = 3
 export const storeSearchInPage = async ({ iPhoneOrderConfig, force }: IStoreSearchInPageProps) => {
     const storeSearchDataAutom = `fulfillment-pickup-store-search-button`
@@ -239,6 +274,13 @@ export const storeSearchInPage = async ({ iPhoneOrderConfig, force }: IStoreSear
             return
         }
     }
+
+    const beforeCards = document.querySelectorAll(
+        '.rf-hcard, [class*="hcard"], li[class*="store"], div[class*="storecard"], div[class*="store-card"]'
+    )
+    const beforeText = Array.from(beforeCards)
+        .map(card => card.textContent || '')
+        .join('|')
 
     await randomSleep({ min: 0, max: randomRange })
     const isSelectionOpen = document.querySelectorAll(`li[role="listitem"]>button`)?.length > 0
@@ -295,5 +337,12 @@ export const storeSearchInPage = async ({ iPhoneOrderConfig, force }: IStoreSear
             }
         })
         await randomSleep({ min: 0, max: randomRange })
+    }
+
+    const expectedRegion = `${provinceName}${cityName}${districtName}`
+    const regionUpdated = await waitForRegionText(expectedRegion)
+    const listUpdated = await waitForStoreListRefresh(beforeText)
+    if (!regionUpdated && !listUpdated) {
+        console.warn(`[Adzapple助手] 行政区或门店列表未确认刷新完成`, expectedRegion)
     }
 }

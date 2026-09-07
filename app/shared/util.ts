@@ -139,7 +139,7 @@ export const getSelectedStoreInUI = (): { storeNumber: string; storeName: string
             return { storeNumber: checkedInput.value, storeName }
         }
     } catch (e) {
-        console.error(`[三丈apple助手] getSelectedStoreInUI error`, e)
+        console.error(`[Adzapple助手] getSelectedStoreInUI error`, e)
     }
     return null
 }
@@ -177,6 +177,50 @@ export const restoreFromStorage = async <T extends TValue>(storeName?: string): 
             } else {
                 const value = items?.[storeName]
                 // incase value is false
+                if (value === undefined) {
+                    resolve({} as T)
+                } else {
+                    resolve(value)
+                }
+            }
+        })
+    }).catch(e => {
+        console.error(e)
+        return {} as T
+    })
+}
+
+/**
+ * chrome.storage.local 读写：不随 Google 账号跨设备同步。
+ * 激活状态必须用 local 存储，否则同一账号的其他设备会直接继承激活状态，
+ * 破坏「一码一机」的绑定（设备码由硬件指纹实时计算，无需存储）。
+ */
+export const saveToLocalStorage = async <T extends TValue>(tValue: T, storeName: string): Promise<void> => {
+    // @ts-ignore
+    if (typeof chrome === 'undefined' || !chrome.storage) {
+        console.log('Please use as chrome extension')
+        return
+    }
+    const storedValue = (await restoreFromLocalStorage()) as Record<string, any>
+    const storeValue = { ...storedValue, [storeName]: tValue }
+    // @ts-ignore
+    chrome.storage.local.set(storeValue)
+}
+
+export const restoreFromLocalStorage = async <T extends TValue>(storeName?: string): Promise<T> => {
+    // @ts-ignore
+    if (typeof chrome === 'undefined' || !chrome.storage) {
+        console.log('Please use as chrome extension')
+        return null as T
+    }
+
+    return new Promise<T>(resolve => {
+        // @ts-ignore
+        chrome.storage?.local.get(null, (items: any) => {
+            if (!storeName) {
+                resolve({ ...items })
+            } else {
+                const value = items?.[storeName]
                 if (value === undefined) {
                     resolve({} as T)
                 } else {

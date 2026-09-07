@@ -4,6 +4,7 @@ import {
     getElemByID,
     getElemBySelectorAndText,
     restoreFromStorage,
+    restoreFromLocalStorage,
 } from '../../shared/util'
 import {
     applePageUrl,
@@ -51,9 +52,10 @@ const doFroApplePages = async (url?: string) => {
     }
 
     // ***** 激活码校验（双保险：popup 开启时已验证过，这里防 storage 被绕过/过期后仍在跑） *****
-    const activationValidUntil = Number((await restoreFromStorage(storeKeys.activationValidUntil) as any) || 0)
+    // 激活状态存 local（不随账号同步），与「一码一设备」绑定保持一致
+    const activationValidUntil = Number(((await restoreFromLocalStorage(storeKeys.activationValidUntil)) as any) || 0)
     if (!activationValidUntil || activationValidUntil < Date.now()) {
-        console.warn(`[三丈apple助手] 自动抢购未激活或激活已过期，请在扩展弹窗中输入激活码重新开启`)
+        console.warn(`[Adzapple助手] 自动抢购未激活或激活已过期，请在扩展弹窗中输入激活码重新开启`)
         if (iframeContainer) iframeContainer.style.display = 'none'
         return
     }
@@ -76,7 +78,7 @@ const doFroApplePages = async (url?: string) => {
     const pauseRemainMs = await getAutoPauseRemainMs()
     if (pauseRemainMs > 0) {
         console.warn(
-            `[三丈apple助手] 检测到频繁 404 自愈，自动下单已暂停 ${Math.ceil(pauseRemainMs / 1000)}s。请人工确认当前机型/取货门店是否可购买；到配置页重新保存可立即解除暂停。`
+            `[Adzapple助手] 检测到频繁 404 自愈，自动下单已暂停 ${Math.ceil(pauseRemainMs / 1000)}s。请人工确认当前机型/取货门店是否可购买；到配置页重新保存可立即解除暂停。`
         )
         return
     }
@@ -123,7 +125,10 @@ const doFroApplePages = async (url?: string) => {
         isTop && /\/signin/i.test(pathname) && !document.querySelector('#signin-container, #signin, form')
 
     if (/\/signin/i.test(pathname) && !hostPageNoForm) {
-        console.log(`doFroApplePages: run doSignIn (top=${isTop}, frame_id=${queryString.get('frame_id')})`, location.href)
+        console.log(
+            `doFroApplePages: run doSignIn (top=${isTop}, frame_id=${queryString.get('frame_id')})`,
+            location.href
+        )
         await doSignIn(iPhoneOrderConfig)
         return
     }

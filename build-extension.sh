@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # ============================================================
-#  三丈apple助手  一键构建 + 打包脚本（Windows Git Bash / macOS / Linux）
+#  Adzapple助手  一键构建 + 打包脚本（Windows Git Bash / macOS / Linux）
 #  用法：
 #     ./build-extension.sh               # 完整构建并打包 extension/ 目录
 #     ./build-extension.sh --no-clean     # 跳过 .next 清理（可选，加速）
 #     ./build-extension.sh --no-zip       # 只构建，不压 zip
 #  产物：
-#     SanZhangApple_vX.Y.zip（自动读取 manifest.json 里的版本号）
+#     AdzApple_vX.Y.zip（自动读取 manifest.json 里的版本号）
 # ============================================================
 set -e
 cd "$(dirname "$0")"
@@ -36,7 +36,7 @@ node ./buildAfter.js
 
 # 读取 manifest 版本号
 VER=$(node -e "console.log(require('./extension/manifest.json').version)")
-OUT="SanZhangApple_v${VER}.zip"
+OUT="AdzApple_v${VER}.zip"
 
 if [ "$ZIP" = "1" ]; then
   echo "==> [4/4] 压缩为 ${OUT}"

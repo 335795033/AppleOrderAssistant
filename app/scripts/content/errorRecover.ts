@@ -41,7 +41,7 @@ const maybePauseAfterRecover = async (): Promise<void> => {
         if (count >= RECOVER_MAX_IN_WINDOW) {
             await saveToStorage(now + PAUSE_MS, PAUSE_KEY)
             console.warn(
-                `[三丈apple助手] ${
+                `[Adzapple助手] ${
                     RECOVER_WINDOW_MS / 60000
                 }分钟内已连续自愈${count}次，疑似当前会话被风控或商品/门店不可购买。自动下单已暂停 ${
                     PAUSE_MS / 60000
@@ -49,7 +49,7 @@ const maybePauseAfterRecover = async (): Promise<void> => {
             )
         }
     } catch (e) {
-        console.error(`[三丈apple助手] maybePauseAfterRecover error`, e)
+        console.error(`[Adzapple助手] maybePauseAfterRecover error`, e)
     }
 }
 
@@ -83,7 +83,7 @@ export const isAppleErrorPage = (): boolean => {
         }
         return false
     } catch (e) {
-        console.error(`[三丈apple助手] isAppleErrorPage error`, e)
+        console.error(`[Adzapple助手] isAppleErrorPage error`, e)
         return false
     }
 }
@@ -101,12 +101,7 @@ export const clearAppleCookies = (): number => {
         // domain 候选：www.apple.com.cn / .apple.com.cn / apple.com.cn
         const hostParts = location.hostname.split('.')
         const rootDomain = hostParts.slice(-2).join('.')
-        const domainCandidates = [
-            location.hostname,
-            `.${location.hostname}`,
-            rootDomain,
-            `.${rootDomain}`,
-        ]
+        const domainCandidates = [location.hostname, `.${location.hostname}`, rootDomain, `.${rootDomain}`]
         // 大多数 apple cookie 的 path 都是 /，这里统一按 / 过期
         const expired = `expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=-1; path=/`
 
@@ -125,9 +120,9 @@ export const clearAppleCookies = (): number => {
                 }
             })
         })
-        console.log(`[三丈apple助手] cleared cookies: ${names.join(', ')}`)
+        console.log(`[Adzapple助手] cleared cookies: ${names.join(', ')}`)
     } catch (e) {
-        console.error(`[三丈apple助手] clearAppleCookies error`, e)
+        console.error(`[Adzapple助手] clearAppleCookies error`, e)
     }
     return removed
 }
@@ -139,7 +134,7 @@ export const clearAppleCookies = (): number => {
  */
 export const autoRecoverIfErrorPage = async (): Promise<boolean> => {
     if (!isAppleErrorPage()) return false
-    console.warn(`[三丈apple助手] 检测到苹果错误页，疑似被风控标记，自动清理会话 cookie 并回到购物车重建会话...`)
+    console.warn(`[Adzapple助手] 检测到苹果错误页，疑似被风控标记，自动清理会话 cookie 并回到购物车重建会话...`)
     clearAppleCookies()
     // 统计自愈次数，过于频繁则暂停自动下单，避免“404→清cookie→自动再结账→404”死循环
     await maybePauseAfterRecover()
@@ -147,7 +142,7 @@ export const autoRecoverIfErrorPage = async (): Promise<boolean> => {
     try {
         location.replace('https://www.apple.com.cn/shop/bag')
     } catch (e) {
-        console.error(`[三丈apple助手] recover redirect error`, e)
+        console.error(`[Adzapple助手] recover redirect error`, e)
         location.href = 'https://www.apple.com.cn/shop/bag'
     }
     return true
@@ -155,7 +150,7 @@ export const autoRecoverIfErrorPage = async (): Promise<boolean> => {
 
 /** 主动轮换会话：清 cookie 后整页刷新（用于轮询达到阈值/连续失败时的自愈） */
 export const rotateSessionAndReload = async (markText?: string): Promise<void> => {
-    console.warn(`[三丈apple助手] rotate session, ${markText || ''}`)
+    console.warn(`[Adzapple助手] rotate session, ${markText || ''}`)
     clearAppleCookies()
     await sleep(600 + Math.random() * 1000)
     location.reload()

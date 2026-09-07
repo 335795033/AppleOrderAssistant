@@ -28,7 +28,9 @@ const isStoreAvailableText = (text: string): boolean => {
  */
 const findAvailableStoreCard = (): { el: HTMLElement; radio: HTMLElement | null; storeName: string } | null => {
     const candidates = Array.from(
-        document.querySelectorAll('.rf-hcard, [class*="hcard"], li[class*="store"], div[class*="storecard"], div[class*="store-card"]')
+        document.querySelectorAll(
+            '.rf-hcard, [class*="hcard"], li[class*="store"], div[class*="storecard"], div[class*="store-card"]'
+        )
     ) as HTMLElement[]
 
     for (const card of candidates) {
@@ -99,7 +101,7 @@ export const doPickupFulfillment = async (iPhoneOrderConfig: IPHONEORDER_CONFIG)
         // 1) 确保“我要取货”tab 选中
         let iwantpickup = getElemBySelectorAndText('div.rc-segmented-control-text', '我要取货')
         if (!iwantpickup) {
-            console.warn(`[三丈apple助手] 自提模式：页面未找到「我要取货」tab`)
+            console.warn(`[Adzapple助手] 自提模式：页面未找到「我要取货」tab`)
             return false
         }
         if (!isSegmentedSelected(iwantpickup)) {
@@ -117,30 +119,30 @@ export const doPickupFulfillment = async (iPhoneOrderConfig: IPHONEORDER_CONFIG)
             // 2a) 页面已有选中门店（之前选中过/页面自身选中）→ 直接点继续
             const selectedStore = getSelectedStoreInUI()
             if (selectedStore?.storeNumber) {
-                console.log(`[三丈apple助手] 取货门店已选中(${selectedStore.storeName})，点击继续填写取货详情`)
+                console.log(`[Adzapple助手] 取货门店已选中(${selectedStore.storeName})，点击继续填写取货详情`)
                 const btn = await waitForClickable(getPickupContinueButton, 3000)
                 if (btn) {
                     btn.click()
                     return true
                 }
-                console.warn(`[三丈apple助手] 门店已选中但未等到「继续填写取货详情」按钮`)
+                console.warn(`[Adzapple助手] 门店已选中但未等到「继续填写取货详情」按钮`)
             }
 
             // 2b) 扫描“可取货”门店卡片
             const card = findAvailableStoreCard()
             if (card) {
-                console.log(`[三丈apple助手] 发现可取货门店：${card.storeName}，点击选中`)
+                console.log(`[Adzapple助手] 发现可取货门店：${card.storeName}，点击选中`)
                 ;(card.radio || card.el).click()
                 await sleep(1 + Math.random(), 'wait store selected in UI')
                 const btn = await waitForClickable(getPickupContinueButton, 3000)
                 if (btn) {
-                    console.log(`[三丈apple助手] 点击「继续填写取货详情」`)
+                    console.log(`[Adzapple助手] 点击「继续填写取货详情」`)
                     btn.click()
                     return true
                 }
-                console.warn(`[三丈apple助手] 选中门店后未等到继续按钮，进入下一轮`)
+                console.warn(`[Adzapple助手] 选中门店后未等到继续按钮，进入下一轮`)
             } else {
-                console.log(`[三丈apple助手] 第 ${round}/${maxRounds} 轮：暂无可取货门店`)
+                console.log(`[Adzapple助手] 第 ${round}/${maxRounds} 轮：暂无可取货门店`)
             }
 
             // 2c) 没有可取货门店 → 强制切地区刷新门店列表（老版本刷库存行为）
@@ -151,9 +153,9 @@ export const doPickupFulfillment = async (iPhoneOrderConfig: IPHONEORDER_CONFIG)
                 'wait store list refresh after district re-select'
             )
         }
-        console.warn(`[三丈apple助手] 自提 UI 驱动 ${maxRounds} 轮未发现可取货门店，转 API 轮询兜底`)
+        console.warn(`[Adzapple助手] 自提 UI 驱动 ${maxRounds} 轮未发现可取货门店，转 API 轮询兜底`)
     } catch (e) {
-        console.error(`[三丈apple助手] doPickupFulfillment error`, e)
+        console.error(`[Adzapple助手] doPickupFulfillment error`, e)
     }
     return false
 }

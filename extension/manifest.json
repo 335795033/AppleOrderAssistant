@@ -1,8 +1,8 @@
 {
     "manifest_version": 3,
-    "name": "三丈apple助手",
-    "description": "三丈apple助手 (捡漏抢购增强版)",
-    "version": "2.9",
+    "name": "Adzapple助手",
+    "description": "Adzapple助手 (捡漏抢购增强版)",
+    "version": "3.0",
     "permissions": ["ttsEngine","tts", "activeTab", "scripting", "contextMenus", "tabs","storage"],
     "host_permissions": [ "https://*.apple.com.cn/*"],
     "icons": {
@@ -15,7 +15,7 @@
     },
     "options_page": "dist/options.html",
     "action": {
-        "default_title": "三丈apple助手",
+        "default_title": "Adzapple助手",
         "default_popup": "dist/popup.html"
     },
     "background": {

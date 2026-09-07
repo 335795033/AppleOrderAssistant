@@ -1,7 +1,7 @@
 'use client'
-import { restoreFromStorage, saveToStorage } from '@/app/shared/util'
+import { restoreFromStorage, saveToStorage, restoreFromLocalStorage, saveToLocalStorage } from '@/app/shared/util'
 import { defaultiPhoneOrderConfig, storeKeys } from '@/app/shared/constants'
-import { verifyActivationCode } from '@/app/shared/activation'
+import { verifyActivationCode, makeDeviceId } from '@/app/shared/activation'
 import { useEffect, useState } from 'react'
 import { Match_URL } from '@/app/shared/constants'
 import { IPHONEORDER_CONFIG } from '@/app/shared/interface'
@@ -11,15 +11,20 @@ const Popup = () => {
     const [orderEnabled, setOrderEnable] = useState<boolean>(false)
     const [config, setConfig] = useState<IPHONEORDER_CONFIG>(defaultiPhoneOrderConfig)
     const [activationValidUntil, setActivationValidUntil] = useState<number>(0)
+    const [deviceId, setDeviceId] = useState<string>('')
+    const [deviceIdCopied, setDeviceIdCopied] = useState<boolean>(false)
     // 异步获取enable状态
     useEffect(() => {
         const getOrderEnable = async () => {
             const isEnabled = await restoreFromStorage(storeKeys.orderEnabled)
             const config = await restoreFromStorage(storeKeys.orderConfig)
-            const validUntil = Number((await restoreFromStorage(storeKeys.activationValidUntil)) || 0)
+            // 激活状态存 local：不随账号同步到其他设备，激活只属于本机
+            const validUntil = Number((await restoreFromLocalStorage(storeKeys.activationValidUntil)) || 0)
+            // 设备码由硬件指纹实时计算（同机所有浏览器结果一致），无需持久化
             setOrderEnable(!!isEnabled)
             setConfig(config as IPHONEORDER_CONFIG)
             setActivationValidUntil(validUntil)
+            setDeviceId(makeDeviceId())
         }
         getOrderEnable()
     }, [])
@@ -34,17 +39,28 @@ const Popup = () => {
         }
     }
 
+    const copyDeviceId = async () => {
+        if (!deviceId) return
+        try {
+            await navigator.clipboard.writeText(deviceId)
+            setDeviceIdCopied(true)
+            setTimeout(() => setDeviceIdCopied(false), 1500)
+        } catch (e) {
+            console.error(`copy deviceId failed`, e)
+        }
+    }
+
     // 开启自动抢购前先做激活码校验：有效期内无需重复验证
     const ensureActivated = async (): Promise<boolean> => {
         if (isActivated) return true
         const code = window.prompt('首次开启自动抢购需要激活。\n请输入激活码（未输入或点取消则不开启）：')
         if (!code) return false
-        const result = verifyActivationCode(code)
+        const result = verifyActivationCode(code, deviceId)
         if (!result.valid || !result.validUntil) {
             window.alert(`激活失败：${result.reason || '激活码无效'}`)
             return false
         }
-        await saveToStorage(result.validUntil, storeKeys.activationValidUntil)
+        await saveToLocalStorage(result.validUntil, storeKeys.activationValidUntil)
         setActivationValidUntil(result.validUntil)
         const dateText = new Date(result.validUntil).toLocaleDateString()
         window.alert(`激活成功，有效期至 ${dateText}`)
@@ -55,18 +71,16 @@ const Popup = () => {
         // 开启动作（orderEnabled=true）：先校验激活码（有效期内无需重复验证），再校验配置完整性
         if (orderEnabled) {
             if (!isActivated && !(await ensureActivated())) return
-            if (
-                !(
-                    config?.lastName &&
-                    config?.mobile &&
-                    config?.firstName &&
-                    config?.appleId &&
-                    config?.last4code &&
-                    config?.cityName &&
-                    config?.districtName &&
-                    config?.provinceName
-                )
-            ) {
+            if (!(
+                config?.lastName &&
+                config?.mobile &&
+                config?.firstName &&
+                config?.appleId &&
+                config?.last4code &&
+                config?.cityName &&
+                config?.districtName &&
+                config?.provinceName
+            )) {
                 setOrderEnable(false)
                 window.alert(`请先配置必要信息`)
                 return
@@ -129,6 +143,20 @@ const Popup = () => {
                         </span>
                     ) : (
                         <span>未激活：开启自动抢购时需输入激活码</span>
+                    )}
+                </div>
+                <div
+                    className="w-full text-center text-xs text-gray-400 -mt-1 cursor-pointer hover:text-gray-600"
+                    title="点击复制设备码，发给发码方生成激活码"
+                    onClick={copyDeviceId}
+                >
+                    {deviceIdCopied ? (
+                        <span className="text-green-600">设备码已复制</span>
+                    ) : (
+                        <span>
+                            本机设备码：<span className="font-mono tracking-wide">{deviceId || '生成中...'}</span>
+                            （点击复制）
+                        </span>
                     )}
                 </div>
             </main>
