@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Apple Store 微信小程序下单流程 HAR 抓包分析报告</title>
+<style>
+:root {
+    --bg: #f5f5f7;
+    --card-bg: #ffffff;
+    --primary: #0071e3;
+    --text: #1d1d1f;
+    --text-secondary: #6e6e73;
+    --border: #d2d2d7;
+    --code-bg: #1e1e1e;
+    --code-text: #d4d4d4;
+    --success: #34c759;
+    --warning: #ff9500;
+    --danger: #ff3b30;
+    --tag-get: #007aff;
+    --tag-post: #ff9500;
+    --tag-302: #af52de;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 0;
+}
+.hero {
+    background: linear-gradient(135deg, #1d1d1f 0%, #2d2d2f 100%);
+    color: #fff;
+    padding: 60px 40px 50px;
+    text-align: center;
+}
+.hero h1 { font-size: 2.2em; font-weight: 700; margin-bottom: 10px; }
+.hero p { font-size: 1.1em; color: #a1a1a6; max-width: 700px; margin: 0 auto; }
+.hero .meta { margin-top: 20px; display: flex; justify-content: center; gap: 30px; flex-wrap: wrap; }
+.hero .meta-item { font-size: 0.9em; color: #86868b; }
+.hero .meta-item strong { color: #fff; }
+
+.container { max-width: 1100px; margin: 0 auto; padding: 30px 20px; }
+
+.section { margin-bottom: 40px; }
+.section-title {
+    font-size: 1.5em;
+    font-weight: 700;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--border);
+}
+
+.summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 16px;
+    margin-bottom: 30px;
+}
+.summary-card {
+    background: var(--card-bg);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+.summary-card .label { font-size: 0.85em; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+.summary-card .value { font-size: 1.1em; font-weight: 600; word-break: break-all; }
+.summary-card .value.green { color: var(--success); }
+.summary-card .value.blue { color: var(--primary); }
+.summary-card .value.orange { color: var(--warning); }
+
+/* Timeline */
+.timeline { position: relative; padding-left: 30px; }
+.timeline::before { content: ''; position: absolute; left: 8px; top: 0; bottom: 0; width: 2px; background: var(--border); }
+.timeline-item { position: relative; margin-bottom: 20px; }
+.timeline-item::before {
+    content: ''; position: absolute; left: -26px; top: 6px;
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--primary); border: 2px solid #fff;
+    box-shadow: 0 0 0 2px var(--primary);
+}
+.timeline-item .time { font-size: 0.8em; color: var(--text-secondary); }
+.timeline-item .title { font-weight: 600; margin-bottom: 4px; }
+.timeline-item .desc { font-size: 0.9em; color: var(--text-secondary); }
+
+/* API Card */
+.api-card {
+    background: var(--card-bg);
+    border-radius: 12px;
+    margin-bottom: 24px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    overflow: hidden;
+}
+.api-card .api-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.method-tag {
+    font-size: 0.75em;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 4px;
+    color: #fff;
+}
+.method-tag.GET { background: var(--tag-get); }
+.method-tag.POST { background: var(--tag-post); }
+.method-tag.302 { background: var(--tag-302); }
+.status-tag {
+    font-size: 0.75em;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 4px;
+    background: #e8e8ed;
+    color: var(--text);
+}
+.status-tag.s2xx { background: #d4edda; color: #155724; }
+.status-tag.s3xx { background: #cce5ff; color: #004085; }
+.status-tag.s4xx { background: #f8d7da; color: #721c24; }
+.api-url { font-family: 'SF Mono', monospace; font-size: 0.85em; color: var(--text-secondary); word-break: break-all; flex: 1; }
+.api-step { font-size: 0.8em; font-weight: 700; color: var(--primary); }
+.api-body { padding: 16px 20px; }
+.api-body .section-label { font-size: 0.8em; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; margin: 12px 0 6px; }
+
+pre {
+    background: var(--code-bg);
+    color: var(--code-text);
+    padding: 14px 16px;
+    border-radius: 8px;
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.82em;
+    line-height: 1.5;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+pre .key { color: #9cdcfe; }
+pre .string { color: #ce9178; }
+pre .number { color: #b5cea8; }
+pre .bool { color: #569cd6; }
+pre .comment { color: #6a9955; }
+
+.field-table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
+.field-table th { text-align: left; padding: 8px 12px; background: #f8f8f9; border-bottom: 1px solid var(--border); font-weight: 600; }
+.field-table td { padding: 8px 12px; border-bottom: 1px solid var(--border); word-break: break-all; }
+.field-table td:first-child { font-weight: 600; color: var(--primary); width: 30%; }
+.field-table td .type { font-size: 0.8em; color: var(--text-secondary); }
+
+.callout {
+    background: #eef4ff;
+    border-left: 4px solid var(--primary);
+    padding: 12px 16px;
+    border-radius: 0 8px 8px 0;
+    margin: 12px 0;
+    font-size: 0.9em;
+}
+.callout.warning { background: #fff8e1; border-left-color: var(--warning); }
+.callout.danger { background: #ffeaea; border-left-color: var(--danger); }
+
+/* Flow Diagram */
+.flow-diagram {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    align-items: center;
+    padding: 20px 0;
+}
+.flow-step {
+    background: var(--card-bg);
+    border: 2px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 24px;
+    text-align: center;
+    font-size: 0.9em;
+    font-weight: 600;
+    position: relative;
+    width: 80%;
+    max-width: 400px;
+}
+.flow-step.active { border-color: var(--primary); background: #eef4ff; }
+.flow-arrow { font-size: 1.5em; color: var(--text-secondary); margin: 4px 0; }
+.flow-step .step-num { position: absolute; left: -12px; top: -10px; background: var(--primary); color: #fff; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.75em; font-weight: 700; }
+
+.badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.75em;
+    font-weight: 600;
+    margin-left: 6px;
+}
+.badge.req { background: #dbe4ff; color: #3b5bdb; }
+.badge.resp { background: #d4edda; color: #155724; }
+
+table { width: 100%; border-collapse: collapse; }
+table th, table td { padding: 8px 12px; border: 1px solid var(--border); text-align: left; font-size: 0.9em; }
+table th { background: #f8f8f9; }
+
+@media (max-width: 600px) {
+    .hero { padding: 40px 20px 30px; }
+    .hero h1 { font-size: 1.6em; }
+    .api-url { font-size: 0.75em; }
+}
+</style>
+</head>
+<body>
+
+<div class="hero">
+    <h1>Apple Store 微信小程序下单流程 HAR 抓包分析报告</h1>
+    <p>基于微信小程序端 Apple Store 完整下单链路的抓包数据，解析从购物袋到订单确认的全流程 API 交互</p>
+    <div class="meta">
+        <div class="meta-item">抓包时间: <strong>2026-09-08 15:39 - 15:43</strong></div>
+        <div class="meta-item">总请求数: <strong>96 条</strong></div>
+        <div class="meta-item">关键 API: <strong>18 条</strong></div>
+        <div class="meta-item">数据量: <strong>2.42 MB</strong></div>
+    </div>
+</div>
+
+<div class="container">
+
+<!-- 概要信息 -->
+<div class="section">
+    <h2 class="section-title">一、订单概要信息</h2>
+    <div class="summary-grid">
+        <div class="summary-card">
+            <div class="label">商品名称</div>
+            <div class="value">iPhone 17 Pro Max 256GB 银色</div>
+        </div>
+        <div class="summary-card">
+            <div class="label">商品编号 (Part Number)</div>
+            <div class="value blue">MG034CH/A</div>
+        </div>
+        <div class="summary-card">
+            <div class="label">订单金额</div>
+            <div class="value orange">RMB 9,999</div>
+        </div>
+        <div class="summary-card">
+            <div class="label">订单编号</div>
+            <div class="value green">W1779026141</div>
+        </div>
+        <div class="summary-card">
+            <div class="label">支付方式</div>
+            <div class="value">微信支付 (WECHAT)</div>
+        </div>
+        <div class="summary-card">
+            <div class="label">配送方式</div>
+            <div class="value">快递送货 (免费)</div>
+        </div>
+        <div class="summary-card">
+            <div class="label">收货人</div>
+            <div class="value">王毅</div>
+        </div>
+        <div class="summary-card">
+            <div class="label">联系电话</div>
+            <div class="value">18996586840</div>
+        </div>
+        <div class="summary-card">
+            <div class="label">收货地址</div>
+            <div class="value" style="font-size:0.9em;">重庆市两江新区 礼嘉街道礼慈路13号御璟湖山璟园 6-22-7 (401120)</div>
+        </div>
+        <div class="summary-card">
+            <div class="label">邮箱</div>
+            <div class="value" style="font-size:0.9em;">335795033@qq.com</div>
+        </div>
+    </div>
+</div>
+
+<!-- 整体流程图 -->
+<div class="section">
+    <h2 class="section-title">二、整体业务流程图</h2>
+    <div class="flow-diagram">
+        <div class="flow-step active"><div class="step-num">1</div>初始化 DISA Cookie<br><small>GET /miniprogram-bootstrap/disaFetch</small></div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step active"><div class="step-num">2</div>获取购物袋数据<br><small>GET /moe/p/wechat/chat/bag</small></div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step active"><div class="step-num">3</div>发起结账流程<br><small>POST /moe/p/wechat/v2/chat/checkout/start</small></div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step"><div class="step-num">4</div>选择配送方式 (取消到店取货)<br><small>POST /checkoutx?_a=cancelUrl&_m=checkout.pickup</small></div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step"><div class="step-num">5</div>加载收货地址表单<br><small>GET /checkoutx?_a=selectUrl&_m=checkout.review.spokes.0</small></div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step active"><div class="step-num">6</div>保存收货地址<br><small>POST /checkoutx?_a=saveUrl&_m=checkout.shipping</small></div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step"><div class="step-num">7</div>选择支付方式 (微信支付)<br><small>GET /checkoutx?_a=selectUrl&_m=checkout.review.spokes.2</small></div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step active"><div class="step-num">8</div>提交支付选项<br><small>POST /checkoutx/billing?_a=selectBillingOptionUrl</small></div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step"><div class="step-num">9</div>获取微信 OpenID<br><small>GET /miniprogram-bootstrap/fetchOpenId</small></div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step active"><div class="step-num">10</div>提交下单请求 (302)<br><small>POST /checkoutx?_a=placeOrderUrl</small></div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step active"><div class="step-num">11</div>轮询订单状态<br><small>POST /checkout/status → GET /checkoutx/statusx</small></div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step active"><div class="step-num">12</div>订单确认页 (Thank You)<br><small>GET /checkout/thankyou</small></div>
+    </div>
+</div>
+
+<!-- 时间线 -->
+<div class="section">
+    <h2 class="section-title">三、请求时间线 (按时间排序)</h2>
+    <div class="timeline">
+        <div class="timeline-item">
+            <div class="time">15:39:53.701</div>
+            <div class="title">[66] DISA Cookie 初始化</div>
+            <div class="desc">GET /miniprogram-bootstrap/disaFetch → 200, 760ms</div>
+        </div>
+        <div class="timeline-item">
+            <div class="time">15:39:54.480</div>
+            <div class="title">[65] 获取购物袋数据</div>
+            <div class="desc">GET /moe/p/wechat/chat/bag → 200, 2545ms</div>
+        </div>
+        <div class="timeline-item">
+            <div class="time">15:40:01.034</div>
+            <div class="title">[47] 发起结账 (Checkout Start)</div>
+            <div class="desc">POST /moe/p/wechat/v2/chat/checkout/start → 200, 2719ms</div>
+        </div>
+        <div class="timeline-item">
+            <div class="time">15:40:21.041</div>
+            <div class="title">[41] 切换门店/配送方式</div>
+            <div class="desc">GET /checkoutx?_a=changeStoreAction → 200, 2658ms</div>
+        </div>
+        <div class="timeline-item">
+            <div class="time">15:40:23.778</div>
+            <div class="title">[40] 获取全部门店信息</div>
+            <div class="desc">GET /retailapp/p/wechat/stores/allStoresInfoLite → 200, 803ms</div>
+        </div>
+        <div class="timeline-item">
+            <div class="time">15:40:26.003</div>
+            <div class="title">[39] 获取基础配置数据</div>
+            <div class="desc">GET /miniprogram-merch/p/wechat/baseline/data → 200, 505ms</div>
+        </div>
+        <div class="timeline-item">
+            <div class="time">15:40:31.445</div>
+            <div class="title">[38] 取消到店取货 (切换为快递)</div>
+            <div class="desc">POST /checkoutx?_a=cancelUrl&_m=checkout.pickup → 200, 1426ms</div>
+        </div>
+        <div class="timeline-item">
+            <div class="time">15:40:37.038</div>
+            <div class="title">[36] 加载收货地址表单 (Spoke 0)</div>
+            <div class="desc">GET /checkoutx?_a=selectUrl&_m=checkout.review.spokes.0 → 200, 1269ms</div>
+        </div>
+        <div class="timeline-item">
+            <div class="time">15:41:26.644</div>
+            <div class="title">[32] 保存收货地址</div>
+            <div class="desc">POST /checkoutx?_a=saveUrl&_m=checkout.shipping → 200, 2224ms</div>
+        </div>
+        <div class="timeline-item">
+            <div class="time">15:41:35.854</div>
+            <div class="title">[29] 加载支付方式选项 (Spoke 2)</div>
+            <div class="desc">GET /checkoutx?_a=selectUrl&_m=checkout.review.spokes.2 → 200, 1009ms</div>
+        </div>
+        <div class="timeline-item">
+            <div class="time">15:41:41.705</div>
+            <div class="title">[26] 选择微信支付</div>
+            <div class="desc">POST /checkoutx/billing?_a=selectBillingOptionUrl → 200, 3162ms</div>
+        </div>
+        <div class="timeline-item">
+            <div class="time">15:41:57.998</div>
+            <div class="title">[25] 获取微信 OpenID</div>
+            <div class="desc">GET /miniprogram-bootstrap/fetchOpenId → 200, 4247ms</div>
+        </div>
+        <div class="timeline-item">
+            <div class="time">15:42:02.278</div>
+            <div class="title">[24] 提交下单请求</div>
+            <div class="desc">POST /checkoutx?_a=placeOrderUrl → 302, 1825ms</div>
+        </div>
+        <div class="timeline-item">
+            <div class="time">15:42:08.669</div>
+            <div class="title">[23] 查询订单状态</div>
+            <div class="desc">POST /checkout/status → 200, 1058ms</div>
+        </div>
+        <div class="timeline-item">
+            <div class="time">15:42:10.265</div>
+            <div class="title">[21] 状态轮询重定向</div>
+            <div class="desc">GET /checkoutx/statusx?_a=statusUrl → 302, 668ms</div>
+        </div>
+        <div class="timeline-item">
+            <div class="time">15:42:13.797</div>
+            <div class="title">[20] 订单确认页</div>
+            <div class="desc">GET /checkout/thankyou → 200, 828ms</div>
+        </div>
+        <div class="timeline-item">
+            <div class="time">15:42:28.876</div>
+            <div class="title">[19] 外部支付状态查询 (继续)</div>
+            <div class="desc">POST /checkout/thankyoux?_a=external.cont → 200, 1430ms</div>
+        </div>
+        <div class="timeline-item">
+            <div class="time">15:42:34.635</div>
+            <div class="title">[18] 外部支付状态查询 (最终)</div>
+            <div class="desc">POST /checkout/thankyoux?_a=external.status → 200, 1594ms</div>
+        </div>
+    </div>
+</div>
+
+<!-- Step 1: DISA Cookie -->
+<div class="section">
+    <h2 class="section-title">四、各步骤 API 详细解析</h2>
+
+    <!-- Step 1 -->
+    <div class="api-card">
+        <div class="api-header">
+            <span class="api-step">步骤 1</span>
+            <span class="method-tag GET">GET</span>
+            <span class="status-tag s2xx">200</span>
+            <span class="api-url">https://web.mmap.apple.com/26.07.0-MAIN/miniprogram-bootstrap/disaFetch</span>
+        </div>
+        <div class="api-body">
+            <div class="section-label">请求参数</div>
+            <table class="field-table">
+                <tr><th>参数</th><th>值</th><th>说明</th></tr>
+                <tr><td>无 URL 参数</td><td>-</td><td>仅依赖 Cookie 认证</td></tr>
+            </table>
+            <div class="section-label">关键请求头</div>
+            <pre>Content-Type: application/json
+Cookie: as_dima=18c3afdb00cfa664494e4728e78d5de6e4f15e64...
+User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 26_4_1 like Mac OS X) ... MicroMessenger/8.0.76(0x18004c37) NetType/4G Language/zh_CN
+Referer: https://servicewechat.com/wxbc25a7df24ae0e6a/164/page-frame.html</pre>
+            <div class="section-label">响应体</div>
+            <pre>{"Success":"DISA Cookie Added"}</pre>
+            <div class="callout">
+                <strong>分析：</strong>此接口用于初始化 Apple 的 DISA (Device Identity and Session Authentication) Cookie，为后续所有 API 请求提供会话标识。返回值仅确认 Cookie 已设置，不包含业务数据。
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 2 -->
+    <div class="api-card">
+        <div class="api-header">
+            <span class="api-step">步骤 2</span>
+            <span class="method-tag GET">GET</span>
+            <span class="status-tag s2xx">200</span>
+            <span class="api-url">https://web.mmap.apple.com/moe/p/wechat/chat/bag</span>
+        </div>
+        <div class="api-body">
+            <div class="section-label">响应结构 - 购物袋核心数据</div>
+            <pre>{
+    "isEmptyCart": false,
+    "count": "1",
+    "subtotal": "RMB 9,999",
+    "freeShippingLabel": "你的购物袋可以免费送货",
+    "transactions": {
+        "cartRefreshURL": "https://web.mmap.apple.com/moe/p/wechat/chat/bag",
+        "checkoutURL": "https://web.mmap.apple.com/moe/p/wechat/v2/chat/checkout/start",
+        "expressCheckoutURL": ".../chat/bagx?_a=expressCheckout&_m=wechatcart.transactions",
+        "mobileCartInstallmentsURL": ".../chat/bagx?_a=validateAppleCartInstallmentAction",
+        "changeQuantityURL": ".../chat/bagx?_a=updateQuantity&_m=wechatcart.transactions"
+    },
+    "lineItems": [{
+        "lineItemId": "247b7f1d-93ed-4911-b776-21ea65a2396c",
+        "partNumber": "MG034CH/A",
+        "name": "iPhone 17 Pro Max 256GB 银色",
+        "price": "RMB 9,999",
+        "itemPrice": "RMB 9,999",
+        "quantity": 1,
+        "shipLabel": "预计送达日期：",
+        "shipQuote": "有现货，可随时发货。",
+        "installmentType": "NONE",
+        "hasEngraving": false,
+        "hasTradeInPlan": false,
+        "omnitureProductString": "iphone_17_pro;MG034;1;9999.00;event101=1|event102=9999.00"
+    }]
+}</pre>
+            <div class="section-label">商品详细信息</div>
+            <table class="field-table">
+                <tr><th>字段</th><th>值</th><th>说明</th></tr>
+                <tr><td>lineItemId</td><td>247b7f1d-93ed-4911-b776-21ea65a2396c</td><td>购物车行项 UUID</td></tr>
+                <tr><td>partNumber</td><td>MG034CH/A</td><td>Apple 产品编号 (CH = 中国版)</td></tr>
+                <tr><td>name</td><td>iPhone 17 Pro Max 256GB 银色</td><td>商品全名</td></tr>
+                <tr><td>price</td><td>RMB 9,999</td><td>商品单价</td></tr>
+                <tr><td>quantity</td><td>1</td><td>购买数量</td></tr>
+                <tr><td>installmentType</td><td>NONE</td><td>非分期购买</td></tr>
+                <tr><td>hasEngraving</td><td>false</td><td>无镌刻</td></tr>
+                <tr><td>hasTradeInPlan</td><td>false</td><td>无以旧换新</td></tr>
+            </table>
+            <div class="callout">
+                <strong>分析：</strong>购物袋接口返回了完整的商品信息、可用的操作 URL（刷新、结账、快递结账、修改数量）以及配送预估。此接口是整个结账流程的入口，返回的 <code>checkoutURL</code> 将在下一步被调用。
+            </div>
+            <div class="callout warning">
+                <strong>关键 URL：</strong>响应中包含的 <code>checkoutURL</code> 是步骤 3 的请求地址，体现了 Apple 的 API 自发现 (self-discovery) 设计模式——客户端不硬编码 URL，而是从上一个响应中动态获取下一个操作地址。
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 3 -->
+    <div class="api-card">
+        <div class="api-header">
+            <span class="api-step">步骤 3</span>
+            <span class="method-tag POST">POST</span>
+            <span class="status-tag s2xx">200</span>
+            <span class="api-url">https://web.mmap.apple.com/moe/p/wechat/v2/chat/checkout/start</span>
+        </div>
+        <div class="api-body">
+            <div class="section-label">请求体 (application/x-www-form-urlencoded)</div>
+            <pre>dv=as_dima^18c3afdb00cfa664494e4728e78d5de6e4f15e64...
+  |32629af03b9072f380ebd3a54e12f81a75a94e891a680bdfcf3ee3d6dce0a8e9
+  |V3</pre>
+            <table class="field-table">
+                <tr><th>参数</th><th>说明</th></tr>
+                <tr><td>dv</td><td>设备验证数据，格式为 <code>as_dima^{cookie值}|{签名}|V3</code>，用于防机器人验证。as_dima 是 DISA Cookie 的值，V3 是版本号</td></tr>
+            </table>
+            <div class="section-label">响应结构 - 结账 Review 页核心数据</div>
+            <pre>{
+    "view": "mmap-crd-review",
+    "review": {
+        "checkoutOfferSummary": {
+            "summaryRows": [
+                {"id":"subTotal","label":"购物袋小计","value":"RMB 9,999"},
+                {"id":"shipping","label":"免费送货","value":"RMB 0"},
+                {"id":"orderTotal","label":"订单总计","value":"RMB 9,999"}
+            ]
+        },
+        "transactions": {
+            "placeOrderParams": {
+                "mSignCookies": "",
+                "masConfigKey": "placeOrder",
+                "sessionID": "4a1235fd063785adf1239cf928fe63cd14f119d3aace2bbcca13b6453fd91c4f",
+                "mSignParameters": "sessionID"
+            },
+            "placeOrderUrl": "https://web.mmap.apple.com/moe/p/wechat/v2/checkoutx?_a=placeOrderUrl&_m=checkout.review.transactions",
+            "checkoutCancelRefresh": ".../checkoutx?_a=checkoutCancelRefresh&_m=checkout.review.transactions"
+        },
+        "terms": {
+            "sections": [{
+                "formKey": "terms-accept",
+                "termsAccepted": false,
+                "text": "通过单击 \"下单\", 我同意接受 Apple Store 在线商店条款和条件..."
+            }]
+        }
+    }
+}</pre>
+            <div class="callout">
+                <strong>分析：</strong>此接口是结账流程的真正起点。服务端创建了一个 <code>sessionID</code>（64 位 hex 字符串），该 ID 将在后续所有结账步骤中传递，直到最终下单。响应中同时返回了订单摘要、条款信息和 <code>placeOrderUrl</code>（最终下单 URL），但此时 <code>placeOrderUrl</code> 的请求参数（如 openid）尚未填充。
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 4-6 -->
+    <div class="api-card">
+        <div class="api-header">
+            <span class="api-step">步骤 4-6</span>
+            <span class="method-tag GET">GET</span>
+            <span class="status-tag s2xx">200</span>
+            <span class="api-url">门店切换与配送方式选择 (changeStoreAction / allStoresInfoLite / baseline/data)</span>
+        </div>
+        <div class="api-body">
+            <div class="section-label">三个并行/串行请求</div>
+            <table class="field-table">
+                <tr><th>步骤</th><th>URL</th><th>说明</th></tr>
+                <tr><td>4</td><td>/checkoutx?_a=changeStoreAction&_m=checkout.review.fulfillment.items.0</td><td>切换门店/配送方式，返回收货地区数据</td></tr>
+                <tr><td>5</td><td>/retailapp/p/wechat/stores/allStoresInfoLite</td><td>获取全球 Apple Store 门店列表（377KB）</td></tr>
+                <tr><td>6</td><td>/miniprogram-merch/p/wechat/baseline/data</td><td>获取基础 URL 配置和翻译文案</td></tr>
+            </table>
+            <div class="section-label">步骤 4 响应 - 地区数据片段</div>
+            <pre>{
+    "pickup": {
+        "pupEnabled": false,
+        "retailAvailabilityData": {
+            "localityLookupMap": {
+                "重庆": {
+                    "重庆": {
+                        "districts": ["渝中区","沙坪坝区","九龙坡区","南岸区",
+                            "涪陵区","巴南区","北碚区","两江新区", ...],
+                        "name": "重庆"
+                    }
+                }
+            }
+        }
+    }
+}</pre>
+            <div class="callout">
+                <strong>分析：</strong>这三个请求在用户选择"切换配送方式"时触发。<code>changeStoreAction</code> 返回了全国各省市区的级联地址数据，用于地址选择器的省→市→区三级联动。<code>allStoresInfoLite</code> 获取全球门店信息（含坐标、营业状态等），<code>baseline/data</code> 返回各类 URL 模板和界面翻译。
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 7 -->
+    <div class="api-card">
+        <div class="api-header">
+            <span class="api-step">步骤 7</span>
+            <span class="method-tag POST">POST</span>
+            <span class="status-tag s2xx">200</span>
+            <span class="api-url">https://web.mmap.apple.com/moe/p/wechat/v2/checkoutx?_a=cancelUrl&_m=checkout.pickup</span>
+        </div>
+        <div class="api-body">
+            <div class="callout warning">
+                <strong>分析：</strong>此请求用于取消"到店取货"模式，切换到"快递送货"模式。用户最初进入结账页时默认是到店取货 (pickup)，通过此接口取消后，后续步骤才能填写收货地址。请求体为空，响应返回更新后的 review 页面数据（与步骤 3 结构相同）。
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 8 -->
+    <div class="api-card">
+        <div class="api-header">
+            <span class="api-step">步骤 8</span>
+            <span class="method-tag GET">GET</span>
+            <span class="status-tag s2xx">200</span>
+            <span class="api-url">https://web.mmap.apple.com/moe/p/wechat/v2/checkoutx?_a=selectUrl&_m=checkout.review.spokes.0</span>
+        </div>
+        <div class="api-body">
+            <div class="section-label">响应结构 - 收货地址表单定义 (41,810 字符)</div>
+            <pre>{
+    "view": "mmap-crd-review",
+    "shipping": {
+        "saveOnContinueUrl": "https://web.mmap.apple.com/moe/p/wechat/v2/checkoutx?_a=saveOnContinueUrl&_m=checkout.shipping",
+        "mobileAddress": {
+            "localityData": {
+                "state": ["北京","上海","天津","重庆","安徽","福建", ...]
+            },
+            "localityLookupUrl": "https://web.mmap.apple.com/moe/p/wechat/v2/checkoutx?_a=localityLookupUrl&_m=checkout.shipping.mobileAddress",
+            "importFromContacts": {
+                "shouldPickPhone": true,
+                "shouldPickAddress": true,
+                "fields": ["firstName","lastName","fullDaytimePhone",
+                    "secondaryPhone","street","street2","postalCode",
+                    "state","city","district","emailAddress"]
+            },
+            "addressData": {
+                "lastName": "",
+                "firstName": "",
+                "emailAddress": "",
+                "city": "",
+                "countryCode": "中国",
+                "fullDaytimePhone": "",
+                "street": "",
+                "postalCode": "",
+                "district": "",
+                "street2": "",
+                "state": ""
+            }
+        }
+    }
+}</pre>
+            <div class="section-label">地址字段定义</div>
+            <table class="field-table">
+                <tr><th>字段 ID</th><th>中文名</th><th>类型</th><th>必填</th><th>验证规则</th></tr>
+                <tr><td>lastName</td><td>姓氏</td><td>text</td><td>是</td><td>maxLength=20</td></tr>
+                <tr><td>firstName</td><td>名字</td><td>text</td><td>是</td><td>maxLength=14</td></tr>
+                <tr><td>state</td><td>省/市/自治区</td><td>select</td><td>是</td><td>maxLength=35</td></tr>
+                <tr><td>city</td><td>城镇/城市</td><td>select</td><td>是</td><td>maxLength=30</td></tr>
+                <tr><td>district</td><td>区</td><td>select</td><td>是</td><td>maxLength=35</td></tr>
+                <tr><td>street</td><td>街道编号/名称，楼宇名称</td><td>text</td><td>是</td><td>maxLength=35</td></tr>
+                <tr><td>street2</td><td>房间/套房/单元/楼层</td><td>text</td><td>否</td><td>maxLength=35</td></tr>
+                <tr><td>postalCode</td><td>邮编</td><td>text</td><td>否</td><td>正则: ^[0-9]{3,6}$</td></tr>
+                <tr><td>fullDaytimePhone</td><td>日间电话</td><td>text</td><td>是</td><td>minLength=10</td></tr>
+                <tr><td>emailAddress</td><td>邮箱</td><td>text</td><td>是</td><td>-</td></tr>
+            </table>
+            <div class="callout">
+                <strong>分析：</strong>此接口返回完整的收货地址表单 schema。Apple 使用 Spoke 模式——<code>_m=checkout.review.spokes.0</code> 表示 review 页面的第一个"轮辐"(面板)。每个 spoke 对应一个 UI 面板（地址、支付方式等），通过 <code>_a=selectUrl</code> 动态加载。省市区三级联动数据通过 <code>localityLookupUrl</code> 单独请求。
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 9 -->
+    <div class="api-card">
+        <div class="api-header">
+            <span class="api-step">步骤 9</span>
+            <span class="method-tag POST">POST</span>
+            <span class="status-tag s2xx">200</span>
+            <span class="api-url">https://web.mmap.apple.com/moe/p/wechat/v2/checkoutx?_a=saveUrl&_m=checkout.shipping</span>
+        </div>
+        <div class="api-body">
+            <div class="section-label">请求体 (URL 编码后解码)</div>
+            <pre>checkout.shipping.mobileAddress.addressData.lastName   = 王
+checkout.shipping.mobileAddress.addressData.firstName    = 毅
+checkout.shipping.mobileAddress.addressData.state         = 重庆
+checkout.shipping.mobileAddress.addressData.city         = 重庆
+checkout.shipping.mobileAddress.addressData.district     = 两江新区
+checkout.shipping.mobileAddress.addressData.street       = 礼嘉街道礼慈路13号御璟湖山璟园
+checkout.shipping.mobileAddress.addressData.street2      = 6-22-7
+checkout.shipping.mobileAddress.addressData.postalCode   = 401120
+checkout.shipping.mobileAddress.addressData.countryCode  = 中国
+checkout.shipping.mobileAddress.addressData.fullDaytimePhone = 18996586840
+checkout.shipping.mobileAddress.addressData.emailAddress = 335795033@qq.com</pre>
+            <div class="callout">
+                <strong>分析：</strong>此接口提交用户填写的收货地址。参数名采用 Java 风格的点号路径（<code>checkout.shipping.mobileAddress.addressData.{field}</code>），对应后端的嵌套对象结构。服务端验证通过后返回更新后的 review 页面（包含 <code>placeOrderParams</code>）。
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 10-11 -->
+    <div class="api-card">
+        <div class="api-header">
+            <span class="api-step">步骤 10-11</span>
+            <span class="method-tag GET">GET</span>
+            <span class="status-tag s2xx">200</span>
+            <span class="api-url">/checkoutx?_a=selectUrl&_m=checkout.review.spokes.2 (支付方式面板)</span>
+        </div>
+        <div class="api-body">
+            <div class="section-label">响应结构 - 支付方式选项</div>
+            <pre>{
+    "view_url": "app://./checkout/checkout_payment/checkout_payment_option",
+    "translations": {
+        "section0Title": "付款方式",
+        "section1Title": "帐单地址",
+        "sectionInstallmentTitle": "信用卡分期付款",
+        "bankOptions": "支付机构",
+        "installmentTitle": "分期付款",
+        "planSectionTitle": "选择方案",
+        "sectionInstallmentTextFieldPlaceholder": "选择选项",
+        "installmentsEnableTextPlaceholder": "输入行用卡选择分期付款选项",
+        "installmentsInEligibleTextPlaceholder": "该信用卡无法用于分期付款"
+    }
+}</pre>
+            <div class="callout">
+                <strong>分析：</strong><code>spokes.2</code> 是第三个面板，即支付方式选择面板。响应中包含付款方式标题、分期付款选项、帐单地址等 UI 文案。用户在此面板选择支付方式。
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 12 -->
+    <div class="api-card">
+        <div class="api-header">
+            <span class="api-step">步骤 12</span>
+            <span class="method-tag POST">POST</span>
+            <span class="status-tag s2xx">200</span>
+            <span class="api-url">https://web.mmap.apple.com/moe/p/wechat/checkoutx/billing?_a=selectBillingOptionUrl&_m=checkout.billing</span>
+        </div>
+        <div class="api-body">
+            <div class="section-label">请求体</div>
+            <pre>checkout.billing.paymentOptionsAvailableForm = true
+checkout.billing.paymentTypeCategory = WECHAT</pre>
+            <table class="field-table">
+                <tr><th>参数</th><th>值</th><th>说明</th></tr>
+                <tr><td>paymentOptionsAvailableForm</td><td>true</td><td>标记支付选项表单可用</td></tr>
+                <tr><td>paymentTypeCategory</td><td>WECHAT</td><td>选择的支付方式：微信支付</td></tr>
+            </table>
+            <div class="callout">
+                <strong>分析：</strong>此接口提交用户选择的支付方式。注意此 URL 路径与其他 checkoutx 请求不同，使用了 <code>/checkoutx/billing</code> 子路径而非 <code>/v2/checkoutx</code>。<code>paymentTypeCategory</code> 的可选值可能包括 WECHAT、ALIPAY、CMB (招商银行分期) 等。响应耗时 3162ms，是最慢的请求之一，说明服务端在此时可能进行了支付渠道的预校验。
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 13 -->
+    <div class="api-card">
+        <div class="api-header">
+            <span class="api-step">步骤 13</span>
+            <span class="method-tag GET">GET</span>
+            <span class="status-tag s2xx">200</span>
+            <span class="api-url">https://web.mmap.apple.com/26.07.0-MAIN/miniprogram-bootstrap/fetchOpenId</span>
+        </div>
+        <div class="api-body">
+            <div class="section-label">响应体</div>
+            <pre>{"openID":"o1fiX4j3JRUD-1GOWp4bMKJ3_ARs","error":"false"}</pre>
+            <div class="callout">
+                <strong>分析：</strong>此接口获取当前微信用户的 OpenID，用于微信支付的身份标识。OpenID 是微信生态中用户在某个小程序下的唯一标识。此请求耗时 4247ms，是所有请求中最慢的——可能因为需要与微信后端进行 OpenID 的换取和验证。获取到的 OpenID 将在步骤 14 的下单请求中作为 <code>checkout.review.transactions.openid</code> 参数传递。
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 14 -->
+    <div class="api-card">
+        <div class="api-header">
+            <span class="api-step">步骤 14</span>
+            <span class="method-tag POST">POST</span>
+            <span class="status-tag s3xx">302</span>
+            <span class="api-url">https://web.mmap.apple.com/moe/p/wechat/v2/checkoutx?_a=placeOrderUrl&_m=checkout.review.transactions</span>
+        </div>
+        <div class="api-body">
+            <div class="section-label">请求体 - 下单核心参数</div>
+            <pre>mSignCookies =                                           (空，签名 Cookie 值)
+masConfigKey = placeOrder                                (配置键：下单)
+sessionID = 4a1235fd063785adf1239cf928fe63cd14f119d3aace2bbcca13b6453fd91c4f  (步骤3获取)
+mSignParameters = sessionID                              (签名参数标识)
+checkout.review.terms.sections.0.termsAccepted = 1      (已同意条款)
+checkout.review.transactions.openid = o1fiX4j3JRUD-1GOWp4bMKJ3_ARs  (步骤13获取)
+checkout.review.transactions.tzos = -7                  (时区偏移)
+checkout.review.transactions.udid =                      (空，设备唯一标识)</pre>
+            <div class="section-label">响应 - 302 重定向</div>
+            <pre>HTTP/1.1 302
+Location: https://web.mmap.apple.com/moe/p/wechat/v2/checkout/status</pre>
+            <div class="callout warning">
+                <strong>分析：</strong>这是<strong>最核心的下单接口</strong>。请求参数的来源跨越了多个步骤：
+                <ul>
+                    <li><code>sessionID</code> 来自步骤 3（checkout/start 响应）</li>
+                    <li><code>openid</code> 来自步骤 13（fetchOpenId 响应）</li>
+                    <li><code>termsAccepted=1</code> 表示用户已勾选同意条款</li>
+                    <li><code>masConfigKey=placeOrder</code> 指定服务端使用下单配置</li>
+                </ul>
+                响应为 302 重定向到 <code>/checkout/status</code>，触发订单状态轮询。
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 15-16 -->
+    <div class="api-card">
+        <div class="api-header">
+            <span class="api-step">步骤 15-16</span>
+            <span class="method-tag POST">POST</span>
+            <span class="status-tag s2xx">200</span>
+            <span class="api-url">/checkout/status → /checkoutx/statusx (订单状态轮询)</span>
+        </div>
+        <div class="api-body">
+            <div class="section-label">步骤 15 请求体 (与步骤 14 完全相同)</div>
+            <pre>mSignCookies=&masConfigKey=placeOrder
+&sessionID=4a1235fd063785adf1239cf928fe63cd14f119d3aace2bbcca13b6453fd91c4f
+&mSignParameters=sessionID
+&checkout.review.terms.sections.0.termsAccepted=1
+&checkout.review.transactions.openid=o1fiX4j3JRUD-1GOWp4bMKJ3_ARs
+&checkout.review.transactions.tzos=-7
+&checkout.review.transactions.udid=</pre>
+            <div class="section-label">步骤 15 响应</div>
+            <pre>{
+    "head": {
+        "data": {
+            "delay": 0.5,
+            "method": "GET",
+            "url": "https://web.mmap.apple.com/moe/p/wechat/v2/checkoutx/statusx?dst=&_a=statusUrl&_m=spinner",
+            "status": "302"
+        },
+        "status": "200"
+    },
+    "meta": {
+        "mandatoryAdditionalHeaders": {
+            "x-aos-model-page": "mobileCheckoutStatusPage",
+            "x-aos-stk": "6MVK_o0vSgbSNyLbiNP4J0bA8ZE"
+        }
+    },
+    "body": {
+        "_oscaractions": { "url": "" }
+    }
+}</pre>
+            <div class="callout">
+                <strong>分析：</strong>下单后进入异步处理轮询模式。步骤 15 的请求参数与下单请求完全相同（包含 sessionID 和 openid），但服务端返回了一个轮询指令：延迟 0.5 秒后以 GET 方式请求 <code>statusx</code> URL。步骤 16 执行该 GET 请求，返回 302 重定向到 thank you 页面，表示订单已处理完成。
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 17 -->
+    <div class="api-card">
+        <div class="api-header">
+            <span class="api-step">步骤 17</span>
+            <span class="method-tag GET">GET</span>
+            <span class="status-tag s2xx">200</span>
+            <span class="api-url">https://web.mmap.apple.com/moe/p/wechat/v2/checkout/thankyou</span>
+        </div>
+        <div class="api-body">
+            <div class="section-label">响应结构 - 订单确认页</div>
+            <pre>{
+    "pageType": "thankyou",
+    "view_url": "app://./checkout/thankyou/views/thankyou_page_main",
+    "orderNumber": "W1779026141",
+    "externalPaymentPending": false,
+    "orderConfirmationLabel": "我们会将你的订单确认信息发送至：",
+    "translations": {
+        "orderNumberLabel": "您的订单号为：",
+        "finalizeThankyouMessage": "To finalize your order, please complete your payment.",
+        "paymentInstructionLabel": "请完成付款并等待取货通知。",
+        "processing": "正在处理",
+        "cmbNotInstalled": "你的设备未安装掌上生活 app",
+        "openCmbButtonText": "使用掌上生活付款"
+    }
+}</pre>
+            <div class="callout">
+                <strong>分析：</strong>订单确认页返回了 <code>orderNumber: W1779026141</code>，标志着下单成功。页面类型为 <code>thankyou</code>，包含订单号显示、付款说明、处理状态等 UI 文案。
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 18-19 -->
+    <div class="api-card">
+        <div class="api-header">
+            <span class="api-step">步骤 18-19</span>
+            <span class="method-tag POST">POST</span>
+            <span class="status-tag s2xx">200</span>
+            <span class="api-url">/checkout/thankyoux?_a=external.cont / external.status</span>
+        </div>
+        <div class="api-body">
+            <div class="section-label">步骤 18 请求体</div>
+            <pre>thankYou.transactions.accessToken = a8f36811-e5b5-4c24-830d-d47885d4ee0a</pre>
+            <div class="callout">
+                <strong>分析：</strong>这两步在 thank you 页面之后发起，用于查询外部支付渠道（微信支付）的最终状态。<code>accessToken</code> 是 UUID 格式的令牌，用于安全访问交易状态。先调用 <code>external.cont</code>（继续查询），再调用 <code>external.status</code>（获取最终状态）。两次请求的响应结构与 thank you 页面一致，但可能包含更新的支付状态字段。
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 关键数据流 -->
+<div class="section">
+    <h2 class="section-title">五、关键数据传递链路</h2>
+    <table>
+        <tr><th>数据项</th><th>产生步骤</th><th>使用步骤</th><th>传递方式</th></tr>
+        <tr><td>as_dima Cookie</td><td>DISA 初始化 (自动)</td><td>所有后续请求</td><td>HTTP Cookie</td></tr>
+        <tr><td>checkoutURL</td><td>步骤 2 (bag 响应)</td><td>步骤 3 (checkout/start)</td><td>响应 JSON → 请求 URL</td></tr>
+        <tr><td>sessionID</td><td>步骤 3 (checkout/start 响应)</td><td>步骤 14-16 (下单+状态轮询)</td><td>响应 JSON → 请求体参数</td></tr>
+        <tr><td>placeOrderUrl</td><td>步骤 3 (checkout/start 响应)</td><td>步骤 14 (placeOrder)</td><td>响应 JSON → 请求 URL</td></tr>
+        <tr><td>地址表单 schema</td><td>步骤 8 (spokes.0 响应)</td><td>步骤 9 (saveUrl)</td><td>响应 JSON → 用户填写 → 请求体</td></tr>
+        <tr><td>paymentTypeCategory</td><td>用户选择</td><td>步骤 12 (selectBilling)</td><td>请求体参数</td></tr>
+        <tr><td>openID</td><td>步骤 13 (fetchOpenId 响应)</td><td>步骤 14-16 (下单+轮询)</td><td>响应 JSON → 请求体参数</td></tr>
+        <tr><td>accessToken</td><td>thank you 页面(隐含)</td><td>步骤 18-19 (external 查询)</td><td>请求体参数</td></tr>
+        <tr><td>orderNumber</td><td>步骤 17 (thankyou 响应)</td><td>展示给用户</td><td>响应 JSON</td></tr>
+    </table>
+</div>
+
+<!-- 关键 Header 分析 -->
+<div class="section">
+    <h2 class="section-title">六、关键 HTTP 请求头分析</h2>
+    <table>
+        <tr><th>请求头</th><th>值</th><th>说明</th></tr>
+        <tr><td>Content-Type</td><td>application/x-www-form-urlencoded</td><td>大部分 POST 请求使用表单编码，非 JSON</td></tr>
+        <tr><td>Cookie</td><td>as_dima=18c3afdb00cfa664...</td><td>核心认证 Cookie，由 DISA 机制生成，全链路传递</td></tr>
+        <tr><td>x-aos-model-page</td><td>mobileWeChatCheckout / mobileCheckoutThankYouV2 / mobileCheckoutStatusPage</td><td>Apple 自定义头，标识当前页面模型，用于服务端路由和渲染</td></tr>
+        <tr><td>x-aos-stk</td><td>6MVK_o0vSgbSNyLbiNP4J0bA8ZE / MbwLb0NS1rPwJKzkyuxkPcbxnsV-R0XZg5p_5rTN3tk</td><td>Apple 会话令牌 (Session Token Key)，在结账流程中保持一致</td></tr>
+        <tr><td>User-Agent</td><td>Mozilla/5.0 (iPhone; CPU iPhone OS 26_4_1...) MicroMessenger/8.0.76(0x18004c37)</td><td>微信内置浏览器 UA，包含 iOS 26.4.1 和微信 8.0.76 版本信息</td></tr>
+        <tr><td>Referer</td><td>https://servicewechat.com/wxbc25a7df24ae0e6a/164/page-frame.html</td><td>微信小程序 WebView 的页面框架，wxbc25a7df24ae0e6a 是小程序 AppID</td></tr>
+    </table>
+</div>
+
+<!-- URL 参数模式分析 -->
+<div class="section">
+    <h2 class="section-title">七、URL 参数模式分析</h2>
+    <p>Apple 的 checkoutx API 使用 URL Query 参数来路由不同的业务操作，这是一种基于 URL 的命令模式：</p>
+    <table>
+        <tr><th>_a 参数 (Action)</th><th>_m 参数 (Model)</th><th>HTTP 方法</th><th>业务含义</th></tr>
+        <tr><td>changeStoreAction</td><td>checkout.review.fulfillment.items.0</td><td>GET</td><td>切换门店/配送方式</td></tr>
+        <tr><td>cancelUrl</td><td>checkout.pickup</td><td>POST</td><td>取消到店取货</td></tr>
+        <tr><td>selectUrl</td><td>checkout.review.spokes.0</td><td>GET</td><td>加载收货地址面板</td></tr>
+        <tr><td>saveUrl</td><td>checkout.shipping</td><td>POST</td><td>保存收货地址</td></tr>
+        <tr><td>selectUrl</td><td>checkout.review.spokes.2</td><td>GET</td><td>加载支付方式面板</td></tr>
+        <tr><td>selectBillingOptionUrl</td><td>checkout.billing</td><td>POST</td><td>提交支付方式选择</td></tr>
+        <tr><td>placeOrderUrl</td><td>checkout.review.transactions</td><td>POST</td><td>提交下单请求</td></tr>
+        <tr><td>statusUrl</td><td>spinner</td><td>GET</td><td>轮询订单状态</td></tr>
+        <tr><td>checkoutCancelRefresh</td><td>checkout.review.transactions</td><td>POST</td><td>取消结账刷新</td></tr>
+        <tr><td>localityLookupUrl</td><td>checkout.shipping.mobileAddress</td><td>GET</td><td>地址级联查询</td></tr>
+    </table>
+    <div class="callout">
+        <strong>模式总结：</strong>
+        <ul>
+            <li><code>_a</code> (action)：指定要执行的动作类型</li>
+            <li><code>_m</code> (model)：指定操作的数据模型路径，采用点号分隔的层级路径</li>
+            <li><code>_m</code> 的 <code>spokes.{n}</code> 表示 review 页面的第 n 个面板</li>
+            <li>GET + <code>_a=selectUrl</code> 表示加载面板内容</li>
+            <li>POST + <code>_a=saveUrl</code> 表示提交面板数据</li>
+        </ul>
+    </div>
+</div>
+
+<!-- 安全分析 -->
+<div class="section">
+    <h2 class="section-title">八、安全机制分析</h2>
+    <div class="summary-grid">
+        <div class="summary-card">
+            <div class="label">DISA 设备认证</div>
+            <div class="value" style="font-size:0.9em;">as_dima Cookie + dv 参数签名</div>
+        </div>
+        <div class="summary-card">
+            <div class="label">Session 管理</div>
+            <div class="value" style="font-size:0.9em;">64位 hex sessionID + mSign 签名</div>
+        </div>
+        <div class="summary-card">
+            <div class="label">微信身份绑定</div>
+            <div class="value" style="font-size:0.9em;">OpenID 关联支付渠道</div>
+        </div>
+        <div class="summary-card">
+            <div class="label">防重放</div>
+            <div class="value" style="font-size:0.9em;">accessToken UUID 令牌</div>
+        </div>
+    </div>
+    <div class="callout warning">
+        <strong>DV (Device Verification) 参数：</strong>checkout/start 请求中的 <code>dv</code> 参数格式为 <code>as_dima^{cookie_value}|{signature}|V3</code>，其中 signature 是基于 as_dima Cookie 值计算的签名。这是一种设备指纹验证机制，防止未授权的自动化请求。
+    </div>
+    <div class="callout">
+        <strong>mSign 签名机制：</strong>下单请求中的 <code>mSignCookies</code>（空值）和 <code>mSignParameters=sessionID</code> 构成了签名声明。<code>mSignParameters</code> 指明了哪些参数被纳入签名计算。此机制确保关键参数（如 sessionID）在传输过程中未被篡改。
+    </div>
+    <div class="callout">
+        <strong>x-aos-stk 令牌：</strong>这是 Apple 的 Session Token Key，在购物袋阶段和结账阶段分别不同（bag: MbwLb0NS...，checkout: 6MVK_o0v...），说明阶段切换时会重新签发令牌。
+    </div>
+</div>
+
+<!-- 总结 -->
+<div class="section">
+    <h2 class="section-title">九、总结与关键发现</h2>
+    <div class="callout">
+        <strong>1. API 自发现模式：</strong>Apple 微信小程序的 API 采用自发现设计——每个响应都包含下一步操作所需的 URL，客户端不需要硬编码任何结账 URL。这使得 Apple 可以灵活变更后端路由而无需发版。
+    </div>
+    <div class="callout">
+        <strong>2. Spoke 面板架构：</strong>结账页面由多个 "Spoke"（轮辐）面板组成，每个 spoke 对应一个功能区域（地址=spokes.0，支付=spokes.2），通过统一的 <code>_a=selectUrl&_m=checkout.review.spokes.{n}</code> 模式加载，实现面板的按需加载。
+    </div>
+    <div class="callout">
+        <strong>3. 异步下单+轮询：</strong>下单请求返回 302 重定向到状态轮询接口，轮询接口返回延迟指令（0.5s delay）和下一步 URL，形成异步处理链。这种模式避免了长时间请求阻塞。
+    </div>
+    <div class="callout warning">
+        <strong>4. 表单编码而非 JSON：</strong>尽管响应都是 JSON，但所有 POST 请求的请求体都使用 <code>application/x-www-form-urlencoded</code> 而非 JSON。参数名使用点号路径（如 <code>checkout.shipping.mobileAddress.addressData.lastName</code>）映射到后端嵌套对象。
+    </div>
+    <div class="callout">
+        <strong>5. 多层安全机制：</strong>整体链路包含 DISA 设备认证 → Cookie 会话 → sessionID 签名 → OpenID 支付绑定 → accessToken 防重放，形成了多层防御。微信小程序的 Referer 和 AppID 也作为请求来源验证的一部分。
+    </div>
+    <div class="callout">
+        <strong>6. 关键耗时节点：</strong>fetchOpenId (4247ms) 和 selectBillingOptionUrl (3162ms) 是两个最慢的请求，分别涉及微信后端交互和支付渠道校验，是性能优化的重点。
+    </div>
+</div>
+
+</div>
+</body>
+</html>

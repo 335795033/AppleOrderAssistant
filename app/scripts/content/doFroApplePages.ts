@@ -226,13 +226,30 @@ const doFroApplePages = async (url?: string) => {
             if (payBillBtnInput) {
                 payBillBtnInput.click()
 
-                if (!['wechat', 'alipay'].includes(payBill)) {
-                    // 有分期需求
-                    await sleep(1.5)
+                if (payInstallment && !['wechat', 'alipay'].includes(payBill)) {
+                    // 有分期需求：选中银行后苹果会异步拉取分期方案再渲染期数选项，
+                    // 固定 sleep(1.5) 在网络慢时选项大概率还没渲染出来，改为轮询等待
                     const dataAutom = `${payBillBtnInput.id}-${payInstallment}`.replace(`${prefixBillingoptions}.`, '')
-                    const payInstallmentBtnInput = document.querySelector(`input[data-autom="${dataAutom}"]`)
+                    let payInstallmentBtnInput: HTMLInputElement | null = null
+                    for (let i = 0; i < 20; i++) {
+                        payInstallmentBtnInput = document.querySelector(
+                            `input[data-autom="${dataAutom}"]:not([disabled])`
+                        )
+                        if (payInstallmentBtnInput) break
+                        await sleep(0.5)
+                    }
                     console.log(`payInstallmentBtnInput`, payInstallmentBtnInput, `input[data-autom="${dataAutom}"]`)
-                    ;(payInstallmentBtnInput as HTMLInputElement)?.click()
+                    if (payInstallmentBtnInput) {
+                        payInstallmentBtnInput.click()
+                        // 个别情况下直接 click input 不触发 React 状态更新，兜底点一次对应 label
+                        if (!payInstallmentBtnInput.checked) {
+                            await sleep(0.3)
+                            const labelDom = document.querySelector(`label[for="${payInstallmentBtnInput.id}"]`)
+                            ;(labelDom as HTMLLabelElement)?.click()
+                        }
+                        // 等待页面状态稳定后再点「继续」，避免勾选未生效就提交
+                        await sleep(1)
+                    }
                 }
             } else if (alipayBtnInput) {
                 // 获取不到就走默认的支付宝
